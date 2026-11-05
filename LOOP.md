@@ -9,12 +9,12 @@ Read this first, continue from "Next", then update this file.
 - Frameless window, checked in the real exe: no caption, all edges resize, and maximised it fills the work area exactly.
 - Nine interface themes, livelier note themes, and a contrast checker (scripts/check-themes.mjs).
 - Test runner fix: it now closes its hidden Edge fully and refuses a busy port. Eight old runs had left browsers open.
-- Tests: features 60, interface 30, commands 22, study 26, exe 22 + 18. All pass.
+- Codex review of 2026-11-06: all 17 findings fixed. Cut and paste keep every selected object; menus work by keyboard and give focus back; plain-letter shortcuts never fire while typing; F11 covers the whole screen in the real exe.
+- Tests: features 60, interface 30, commands 22, study 26, engine 26, exe 22 + 20. All pass. Committed as ff8e7ec.
 
 ## Next
-1. Fix what the Codex review of 2026-11-06 found (its report is in the session; rerun the review if needed).
-2. Try moving the window by its header, double-click maximise, and Snap with a real mouse. Code in host/FramelessWindow.cs.
-3. Ideas: a theme picker in Preferences with swatches; Xodo's "Extra window" (same document in a second window); per-tool style pop-up as in Xodo.
+1. Try moving the window by its header, double-click maximise, and Snap with a real mouse. Code in host/FramelessWindow.cs.
+2. Ideas: a theme picker in Preferences with swatches; Xodo's "Extra window" (same document in a second window); per-tool style pop-up as in Xodo.
 
 ## Waiting for the user
 - About 1.1 GB of leftover test-browser profiles in %TEMP% (folders named pdfy-edge-*). Deleting them was blocked by a permission check, so the user decides.
