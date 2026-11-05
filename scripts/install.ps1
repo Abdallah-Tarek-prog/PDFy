@@ -17,7 +17,8 @@ Set-ItemProperty -Path "$classes\PDFy.Document" -Name '(default)' -Value 'PDF do
 Set-ItemProperty -Path "$classes\PDFy.Document\DefaultIcon" -Name '(default)' -Value "`"$exe`",0"
 New-Item -Path "$classes\PDFy.Document\shell\open\command" -Force | Out-Null
 Set-ItemProperty -Path "$classes\PDFy.Document\shell\open\command" -Name '(default)' -Value "`"$exe`" `"%1`""
-New-Item -Path "$classes\.pdf\OpenWithProgids" -Force | Out-Null
+# Only created if missing: on an existing key, New-Item -Force would erase the other apps listed there.
+if (-not (Test-Path "$classes\.pdf\OpenWithProgids")) { New-Item -Path "$classes\.pdf\OpenWithProgids" | Out-Null }
 New-ItemProperty -Path "$classes\.pdf\OpenWithProgids" -Name 'PDFy.Document' -Value '' -PropertyType String -Force | Out-Null
 
 Write-Host 'PDFy is in the Start menu and in "Open with" for PDF files.'
