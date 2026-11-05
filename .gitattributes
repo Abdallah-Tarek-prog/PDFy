@@ -1,0 +1,12 @@
+# Text is stored with plain line endings. Binary files are never touched.
+* text=auto eol=lf
+*.pdf binary
+*.gz binary
+*.png binary
+*.jpg binary
+*.heic binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.ico binary
+*.wasm binary

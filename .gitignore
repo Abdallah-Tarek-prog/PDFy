@@ -1,0 +1,16 @@
+# Rebuilt by npm install, npm run build and dotnet publish
+node_modules/
+dist/
+app/
+host/bin/
+host/obj/
+
+# Made by the tests
+tests/output/
+
+# A dictionary rebuild in progress
+vendor-dict-new/
+
+*.log
+.DS_Store
+Thumbs.db
