@@ -101,6 +101,28 @@ try {
   check('Boxes stay editable annotations when not flattened', out.annots.filter(t => t === 'FreeText').length === 2 && out.annots.includes('Stamp'), out.annots.join(', '));
   check('File size stays reasonable', out.size < 400000, `${Math.round(out.size / 1024)} KB with three boxes`);
 
+  // The publishers' pages, read by the Windows app, with their own recordings.
+  const pages = await run(`(async () => {
+    const A = window.__api, out = {};
+    for (const id of ['cambridge', 'oxford', 'longman']) {
+      const t0 = performance.now();
+      const r = await A.lookUpOnline(id, 'water');
+      const b = r?.blocks[0];
+      const rec = b?.prons.find(p => p.audio)?.audio;
+      out[id] = { ms: Math.round(performance.now() - t0), hw: b?.headword, senses: r?.blocks.reduce((n, x) => n + x.senses.length, 0), arabic: r?.blocks.some(x => x.senses.some(s => /[\u0600-\u06FF]/.test(s.arabic ?? ''))), plays: rec ? await A.playRecording(rec, 8000) : false };
+    }
+    let refused = false;
+    try { await A.lookUpOnline('oxford', 'https://example.com/'); } catch { refused = true; }
+    out.refused = refused;
+    return out;
+  })()`);
+  for (const id of ['cambridge', 'oxford', 'longman']) {
+    const p = pages[id];
+    check(`${id} page read by the app`, p.hw === 'water' && p.senses >= 2, `${p.senses} meanings in ${p.ms} ms${id === 'cambridge' ? (p.arabic ? ', with Arabic' : ', NO Arabic') : ''}`);
+    check(`${id} recording plays`, p.plays);
+  }
+  check('Other sites are refused', pages.refused);
+
   // The publishers' pages open in PDFy's own small window.
   await run(`window.chrome.webview.postMessage({ type: 'reference', url: 'https://www.ldoceonline.com/dictionary/water', title: 'Longman: water' })`);
   let ref = null;

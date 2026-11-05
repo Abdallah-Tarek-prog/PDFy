@@ -13,7 +13,19 @@ const types = {
 };
 const port = +(process.env.PORT ?? 5199);
 
+const WEB_HOSTS = ['dictionary.cambridge.org', 'www.oxfordlearnersdictionaries.com', 'www.ldoceonline.com'];
+
 createServer((req, res) => {
+  if (req.url.startsWith('/__web?')) {
+    const target = new URL(req.url, 'http://x').searchParams.get('url') ?? '';
+    let ok = false;
+    try { const u = new URL(target); ok = u.protocol === 'https:' && WEB_HOSTS.includes(u.hostname); } catch { /* Not an address. */ }
+    if (!ok) { res.writeHead(403); res.end('Only the dictionary sites'); return; }
+    fetch(target, { headers: { 'user-agent': 'PDFy/1.0 (personal dictionary reader)' }, redirect: 'follow', signal: AbortSignal.timeout(15000) })
+      .then(async r => { const html = await r.text(); res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ status: r.status, url: r.url, html: html.slice(0, 3_000_000) })); })
+      .catch(err => { res.writeHead(502); res.end(String(err)); });
+    return;
+  }
   if (req.method === 'PUT' && req.url.startsWith('/__save/')) {
     const name = basename(decodeURIComponent(req.url.slice(8)));
     mkdirSync(output, { recursive: true });

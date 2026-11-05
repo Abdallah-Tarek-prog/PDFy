@@ -430,15 +430,17 @@ kbd { font: 11px var(--font); padding: 0 4px; border: 1px solid var(--border); b
 .fp-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 
 /* Dictionary pop-up */
-.dict-pop { position: fixed; z-index: 700; width: min(400px, calc(100vw - 16px)); max-height: min(560px, calc(100vh - 16px)); overflow: auto; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 38px rgb(0 0 0 / .3); }
-.dict-body { padding: 12px 14px 10px; display: flex; flex-direction: column; gap: 9px; }
+.dict-pop { position: fixed; z-index: 700; width: min(460px, calc(100vw - 16px)); max-height: min(620px, calc(100vh - 16px)); overflow: hidden; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 38px rgb(0 0 0 / .3); }
+.dict-body { padding: 10px 14px 10px; display: flex; flex-direction: column; gap: 9px; overflow: auto; min-height: 90px; flex: 1; }
 .dict-loading, .dict-empty { color: var(--muted); padding: 4px 0; }
-.dict-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dict-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px 4px; }
+.dict-head-tools { display: flex; gap: 2px; }
+.dict-head-tools .icon-btn.on { color: var(--accent-text); background: var(--accent-soft); }
 .dict-word { font-size: 21px; font-weight: 650; line-height: 1.2; overflow-wrap: anywhere; }
 .dict-note { font-size: 12px; color: var(--muted); }
 .dict-suggest { font-size: 13px; }
 .link-btn { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
-.dict-sounds { display: flex; flex-wrap: wrap; gap: 6px; }
+.dict-sounds { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 14px 8px; }
 .dict-sound { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 14px; font-size: 12px; background: var(--surface-2); }
 .dict-sound:hover { border-color: var(--accent); }
 .dict-ipa { font-family: "Segoe UI", "Lucida Sans Unicode", sans-serif; color: var(--muted); font-size: 13px; }
@@ -527,3 +529,59 @@ kbd { font: 11px var(--font); padding: 0 4px; border: 1px solid var(--border); b
 .set-actions { display: flex; gap: 5px; margin-top: 4px; }
 .row-gap { display: flex; align-items: center; gap: 8px; }
 .row-gap select { flex: 1; min-width: 0; }
+
+.dict-pop.docked { left: auto !important; right: 0; width: min(440px, 46vw); max-height: none; border-radius: 0; border-top: 0; border-bottom: 0; border-right: 0; box-shadow: -8px 0 24px rgb(0 0 0 / .18); }
+.dict-sound.uk svg { color: #d62d3a; }
+.dict-sound.us svg { color: #2b6cd8; }
+.dict-tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--border); overflow-x: auto; flex-shrink: 0; }
+.dict-tab { padding: 7px 10px 6px; font-size: 12.5px; color: var(--muted); border-radius: 6px 6px 0 0; white-space: nowrap; }
+.dict-tab:hover { color: var(--text); background: var(--surface-2); }
+.dict-tab.on { color: var(--accent-text); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 600; }
+.dict-tab.none, .dict-tab.error { opacity: .55; }
+.dict-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 8px 14px 10px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.dict-foot .dict-source { flex-basis: 100%; }
+
+/* A publisher's entry: headword line, recordings, numbered meanings with examples. */
+.pub { --pub-ink: #1d3a8a; --pub-mark: #c8102e; display: flex; flex-direction: column; gap: 10px; }
+.pub-oxford { --pub-ink: #0b3d91; --pub-mark: #c5161d; }
+.pub-longman { --pub-ink: #2a3f8f; --pub-mark: #d7263d; }
+.pub-cambridge { --pub-ink: #1d2a57; --pub-mark: #0f7b6c; }
+:root[data-theme="dark"] .pub { --pub-ink: #a9c1ff; --pub-mark: #ff7b86; }
+:root[data-theme="dark"] .pub-cambridge { --pub-mark: #5fd3c0; }
+.pub-block { display: flex; flex-direction: column; gap: 6px; }
+.pub-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.pub-hw { font: 700 22px/1.15 Georgia, Cambria, serif; color: var(--pub-ink); }
+.pub-hw sup { font-size: 11px; margin-left: 1px; }
+.pub-pos { font-style: italic; color: var(--pub-mark); font-weight: 600; }
+.pub-gram, .pub-labels { color: var(--muted); font-size: 12px; }
+.pub-level { display: inline-block; padding: 0 5px; border-radius: 4px; font-size: 10.5px; font-weight: 700; color: #fff; background: var(--pub-ink); line-height: 17px; }
+.pub-level.small { font-size: 9.5px; line-height: 15px; padding: 0 4px; margin-inline-end: 4px; }
+.pub-freq { font-size: 10.5px; font-weight: 700; color: var(--pub-mark); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; line-height: 15px; }
+.pub-hyphen { font-size: 12px; color: var(--muted); }
+.pub-prons { display: flex; flex-wrap: wrap; gap: 6px; }
+.pub-pron { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border-radius: 13px; border: 1px solid var(--border); font-size: 12px; background: var(--surface-2); }
+.pub-pron.uk svg { color: #d62d3a; } .pub-pron.us svg { color: #2b6cd8; }
+.pub-pron:hover { border-color: var(--pub-ink); }
+.pub-ipa { font-family: "Segoe UI", "Lucida Sans Unicode", sans-serif; color: var(--muted); }
+.pub-senses, .pub-subsenses { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.pub-subsenses { margin-top: 6px; padding-inline-start: 12px; gap: 6px; }
+.pub-defline { font-size: 13.5px; line-height: 1.45; }
+.pub-num { display: inline-block; min-width: 18px; font-weight: 700; color: var(--pub-ink); }
+.pub-sign { display: inline-block; margin-inline-end: 5px; padding: 0 5px; font-size: 10.5px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: #fff; background: var(--pub-mark); border-radius: 3px; line-height: 17px; vertical-align: 1px; }
+.pub-def { color: var(--text); }
+.pub-ar { margin: 3px 0 0 18px; font-family: "Sakkal Majalla", "Traditional Arabic", "Segoe UI", Tahoma, sans-serif; font-size: 19px; line-height: 1.35; color: var(--pub-mark); }
+.pub-examples { margin: 4px 0 0 18px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.pub-ex { font-size: 12.5px; line-height: 1.4; color: var(--muted); font-style: italic; position: relative; padding-inline-start: 12px; }
+.pub-ex::before { content: '•'; position: absolute; inset-inline-start: 0; color: var(--pub-ink); font-style: normal; }
+.pub-ex:has(.pub-ex-play)::before { content: none; }
+.pub-ex:has(.pub-ex-play) { padding-inline-start: 0; }
+.pub-ex-play { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-inline-end: 4px; border-radius: 50%; color: var(--pub-mark); vertical-align: -4px; }
+.pub-ex-play:hover { background: var(--surface-3); }
+.pub-ex-ar { font-style: normal; font-family: "Sakkal Majalla", "Traditional Arabic", "Segoe UI", sans-serif; font-size: 16px; color: var(--text); opacity: .85; }
+.pub-pattern { font-size: 12.5px; font-weight: 700; color: var(--pub-ink); margin-top: 2px; }
+.pub-rule { border: 0; border-top: 1px dashed var(--border); margin: 2px 0; }
+.pub-related { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.pub-related-title { font-size: 11px; color: var(--muted); margin-inline-end: 2px; }
+.pub-chip { padding: 2px 9px; border-radius: 11px; border: 1px solid var(--border); font-size: 12px; }
+.pub-chip:hover { border-color: var(--pub-ink); color: var(--pub-ink); }
+.pub-see { margin: 2px 0 0 18px; font-size: 12.5px; color: var(--muted); }

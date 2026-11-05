@@ -38,6 +38,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install.ps1
 | Study tools | Dictionary, read from picture, equations, Markdown notes, fonts, colours, preference sets | `src/study/` |
 | Notes and equations in saved files | Printed by the engine into a small PDF, placed as real vector text | `src/study/box.ts`, `host/Program.cs` |
 | Offline dictionary | Wiktionary data, split into small files that load on demand | `vendor-dict/`, built by `scripts/build-dictionary.mjs` |
+| Publishers' pages | The Windows app reads the Cambridge, Oxford or Longman page for a looked-up word. PDFy takes out the words, pronunciations and recording addresses and lays them out again | `host/Program.cs`, `src/study/publishers.ts` |
 | Equation engine | MathJax, loaded the first time an equation is needed | `vendor-math/` |
 
 ## Build

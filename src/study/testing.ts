@@ -8,3 +8,4 @@ export { mathBoxSize, texToInline, texToSvg } from './math';
 export { allThemes, themeById } from './mdthemes';
 export { allSets } from './prefsets';
 export { prepareForReading, readWords, regionCanvas, showWordLayer, wordsToText } from './readpicture';
+export { lookUpOnline, pageUrl, parsePage, playRecording, setOfflineForTest, PUBLISHERS } from './publishers';

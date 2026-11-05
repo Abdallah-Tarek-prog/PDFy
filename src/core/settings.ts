@@ -13,9 +13,15 @@ export interface Settings {
   ocrLang: string;
   /** The preference set last applied. */
   prefSet: string;
+  /** Read the Cambridge, Oxford and Longman pages for a looked-up word. */
+  onlineDict: boolean;
+  /** The dictionary tab shown first. */
+  dictTab: 'quick' | 'cambridge' | 'oxford' | 'longman';
+  /** The dictionary stays open at the side of the window. */
+  dictDocked: boolean;
 }
 
-const DEFAULTS: Settings = { author: 'PDFy user', reopenAtLastPage: true, lookup: false, mdTheme: 'obsidian-light', ocrLang: 'eng', prefSet: '' };
+const DEFAULTS: Settings = { author: 'PDFy user', reopenAtLastPage: true, lookup: false, mdTheme: 'obsidian-light', ocrLang: 'eng', prefSet: '', onlineDict: true, dictTab: 'cambridge', dictDocked: false };
 
 export function getSettings(): Settings {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; }

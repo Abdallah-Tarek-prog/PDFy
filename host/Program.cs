@@ -254,6 +254,9 @@ internal sealed class MainForm : Form
                 case "print":
                     _ = PrintAsync(doc.RootElement.Clone());
                     break;
+                case "web-fetch":
+                    _ = FetchPageAsync(doc.RootElement.GetProperty("id").GetInt32(), doc.RootElement.GetProperty("url").GetString() ?? "");
+                    break;
                 case "font-list":
                     _ = SendFontListAsync();
                     break;
@@ -285,6 +288,52 @@ internal sealed class MainForm : Form
         catch (Exception e)
         {
             Program.Log("Font list: " + e.Message);
+        }
+    }
+
+    private static readonly string[] DictionaryHosts = { "dictionary.cambridge.org", "www.oxfordlearnersdictionaries.com", "www.ldoceonline.com" };
+    private static readonly HttpClient Web = CreateWebClient();
+
+    private static HttpClient CreateWebClient()
+    {
+        var handler = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All, AllowAutoRedirect = true, MaxAutomaticRedirections = 5 };
+        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(12), MaxResponseContentBufferSize = 4 * 1024 * 1024 };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("PDFy/1.0 (personal dictionary reader)");
+        client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en");
+        return client;
+    }
+
+    /// <summary>
+    /// Reads one dictionary page for a word the user looked up, the same page they could open themselves.
+    /// Only the three dictionary sites are allowed, and nothing is kept on disk.
+    /// </summary>
+    private async Task FetchPageAsync(int id, string url)
+    {
+        object reply;
+        try
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) || parsed.Scheme != "https" || !DictionaryHosts.Contains(parsed.Host))
+            {
+                throw new InvalidOperationException("Only the dictionary sites are read.");
+            }
+            using var response = await Web.GetAsync(parsed);
+            var final = response.RequestMessage?.RequestUri;
+            if (final is null || final.Scheme != "https" || !DictionaryHosts.Contains(final.Host)) throw new InvalidOperationException("The page moved to another site.");
+            var html = await response.Content.ReadAsStringAsync();
+            reply = new { type = "web-page", id, ok = true, url = final.AbsoluteUri, status = (int)response.StatusCode, html };
+        }
+        catch (Exception e)
+        {
+            reply = new { type = "web-page", id, ok = false, error = e is TaskCanceledException ? "The site took too long to answer." : e.Message };
+        }
+        try
+        {
+            var json = JsonSerializer.Serialize(reply);
+            BeginInvoke(() => _web.CoreWebView2?.PostWebMessageAsJson(json));
+        }
+        catch (Exception e)
+        {
+            Program.Log("Page reply: " + e.Message);
         }
     }
 

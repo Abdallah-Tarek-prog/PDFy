@@ -282,6 +282,8 @@ export class Study {
     const author = h('input', { id: 'f-author', type: 'text', value: cur.author });
     const reopen = h('input', { id: 'f-reopen', type: 'checkbox', checked: cur.reopenAtLastPage });
     const lookup = h('input', { id: 'f-lookup', type: 'checkbox', checked: this.lookupOn });
+    const onlineDict = h('input', { id: 'f-online', type: 'checkbox', checked: cur.onlineDict });
+    const dictTab = h('select', { id: 'f-dicttab' }, ...[['cambridge', 'Cambridge English–Arabic'], ['oxford', "Oxford Learner's"], ['longman', 'Longman'], ['quick', 'Quick (offline)']].map(([v, l]) => h('option', { value: v, selected: v === cur.dictTab }, l)));
     const ocr = h('select', { id: 'f-ocr' }, ...OCR_LANGUAGES.map(l => h('option', { value: l.value, selected: l.value === cur.ocrLang }, l.label)));
     const noteTheme = h('select', { id: 'f-theme' }, ...allThemes().map(t => h('option', { value: t.id, selected: t.id === cur.mdTheme }, t.name)));
     const setsBox = h('div', { class: 'set-grid' });
@@ -327,6 +329,8 @@ export class Study {
       }, 'Save current settings as a new set'),
       h('h3', { class: 'prefs-title' }, 'Study tools'),
       h('label', { class: 'field-row check-row' }, lookup, 'Word lookup: double-click or select a word to see its meaning'),
+      h('label', { class: 'field-row check-row' }, onlineDict, 'Read the Cambridge, Oxford and Longman pages for the word when online, with their recordings'),
+      row('Dictionary shown first', dictTab),
       row('Language for reading text from pictures', ocr),
       h('div', { class: 'field-row' }, h('label', { for: 'f-theme' }, 'Look of new Markdown notes'),
         h('div', { class: 'row-gap' }, noteTheme, h('button', { class: 'btn small', onclick: safe(() => this.themesDialog(noteTheme.value), 'Themes') }, 'Edit themes…'))),
@@ -336,7 +340,7 @@ export class Study {
 
     const ok = await openDialog('Preferences', body, [{ label: 'Cancel', value: false }, { label: 'Save', value: true, primary: true }], false, undefined, true);
     if (!ok) return;
-    saveSettings({ author: author.value.trim() || cur.author, reopenAtLastPage: reopen.checked, ocrLang: ocr.value, mdTheme: noteTheme.value });
+    saveSettings({ author: author.value.trim() || cur.author, reopenAtLastPage: reopen.checked, ocrLang: ocr.value, mdTheme: noteTheme.value, onlineDict: onlineDict.checked, dictTab: dictTab.value as 'quick' | 'cambridge' | 'oxford' | 'longman' });
     if (lookup.checked !== this.lookupOn) this.toggleLookup(lookup.checked);
     this.host.refreshStudy();
   }

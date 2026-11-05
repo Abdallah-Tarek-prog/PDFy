@@ -22,6 +22,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { reportError, toast } from './ui/dom';
 import { onFontMessage, restoreAddedFonts, installedFonts, addFontFiles } from './study/fonts';
 import { ensureRichCss } from './study/mdthemes';
+import { onPageMessage } from './study/publishers';
 import * as study from './study/testing';
 
 // Last line of defence. An unexpected error shows a message and the app carries on.
@@ -49,6 +50,7 @@ const app = new App(document.getElementById('app')!);
 window.chrome?.webview?.addEventListener('message', e => {
   onHostMessage(e.data as Parameters<typeof onHostMessage>[0]);
   onFontMessage(e.data as Parameters<typeof onFontMessage>[0]);
+  onPageMessage(e.data as Parameters<typeof onPageMessage>[0]);
   const handle = e.additionalObjects?.[0] as FileSystemFileHandle | undefined;
   if (handle) app.openHandle(handle).catch(err => reportError('Opening', err));
   if ((e.data as { type?: string })?.type === 'close-request') {

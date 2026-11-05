@@ -243,14 +243,14 @@ await test('Dictionary: words, forms, sounds and Arabic', async () => {
 });
 
 await test('Dictionary: the pop-up shows sounds, Arabic, meanings and publisher links', async () => {
-  await A.showDictionary('water', { x: 300, y: 200, sentence: 'Plants need water to grow.' });
+  await A.showDictionary('water', { x: 300, y: 200, sentence: 'Plants need water to grow.', tab: 'quick' });
   const pop = await until(() => document.querySelector('.dict-pop .dict-word') && document.querySelector('.dict-pop'), 5000, 'the pop-up');
   ok(pop.querySelector('.dict-sound'), 'pronunciation buttons');
   ok(pop.querySelector('.dict-ar-text'), 'Arabic shown');
   eq(pop.querySelector('.dict-ar-words').getAttribute('dir'), 'rtl', 'Arabic reads right to left');
   ok(pop.querySelectorAll('.dict-senses li').length >= 1, 'English meanings');
-  const labels = [...pop.querySelectorAll('.dict-links .btn')].map(b => b.textContent);
-  for (const l of ['Longman', 'Oxford', 'Cambridge عربي', 'Translate sentence']) ok(labels.includes(l), `${l} button`);
+  const labels = [...pop.querySelectorAll('.dict-tab, .dict-foot .btn')].map(b => b.textContent);
+  for (const l of ['Quick', 'Longman', 'Oxford', 'Cambridge عربي', 'Translate sentence']) ok(labels.includes(l), `${l} button`);
   // Clicking outside closes it.
   document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
   await wait(30);
@@ -429,6 +429,74 @@ await test('Study tab: every button is there and works without a crash', async (
   localStorage.removeItem('pdfy.mdThemes');
   [...document.querySelectorAll('.ribbon-tab')].find(b => b.textContent === 'Home').click();
   s.dirty = false;
+});
+
+// ---- The publishers' pages, read live ----
+
+const summary = r => r ? r.blocks.map(b => `${b.headword}${b.homnum ?? ''} ${b.pos ?? ''} ${b.level ?? ''} [${b.prons.map(p => `${p.region} ${p.ipa ?? '-'} ${p.audio ? 'rec' : 'no-rec'}`).join('; ')}] ${b.senses.length} senses; 1: ${b.senses[0]?.signpost ? `(${b.senses[0].signpost}) ` : ''}${b.senses[0]?.def.slice(0, 50)}${b.senses[0]?.arabic ? ` = ${b.senses[0].arabic}` : ''}; ex ${b.senses.reduce((n, s) => n + s.examples.length, 0)}`).join(' || ') + (r.related.length ? ` | related: ${r.related.map(x => x.label).join(', ')}` : '') : 'none';
+
+for (const id of ['cambridge', 'oxford', 'longman']) {
+  await test(`Publishers: ${id} reads words, pronunciations, recordings and meanings`, async () => {
+    const r = await A.lookUpOnline(id, 'water');
+    ok(r && r.blocks.length, 'an entry');
+    const b = r.blocks[0];
+    eq(b.headword, 'water', 'headword');
+    ok(b.prons.some(p => p.region === 'UK' && p.audio && p.ipa), 'British pronunciation with a recording');
+    ok(b.prons.some(p => p.region === 'US' && p.audio), 'American recording');
+    const total = r.blocks.reduce((n, x) => n + x.senses.length, 0);
+    ok(total >= 2, `${total} meanings`);
+    ok(b.senses.some(s => s.examples.length), 'examples');
+    if (id === 'cambridge') ok(r.blocks.every(x => x.senses.every(s => /[؀-ۿ]/.test(s.arabic ?? ''))), 'Arabic for each meaning');
+    if (id === 'oxford') ok(b.level === 'A1', `level ${b.level}`);
+    if (id === 'longman') ok(b.senses.some(s => s.signpost) && b.senses.some(s => s.examples.some(e => e.audio)), 'signposts and spoken examples');
+    const ok1 = await A.playRecording(b.prons.find(p => p.audio).audio, 6000).catch(() => false);
+    const extra = [];
+    for (const w of ['take off', 'running', 'beautiful', 'dictionarry']) extra.push(`${w}: ${summary(await A.lookUpOnline(id, w).catch(e => ({ blocks: [], related: [], err: e.message })))}`);
+    return `${summary(r)} | recording plays: ${ok1} | ${extra.join(' | ')}`;
+  });
+}
+
+await test('Publishers: the pop-up shows the tabs, reads the chosen site, and pins to the side', async () => {
+  localStorage.setItem('pdfy.settings', JSON.stringify({ onlineDict: true, dictTab: 'cambridge' }));
+  await A.showDictionary('beautiful', { x: 300, y: 200, sentence: 'What a beautiful day.' });
+  const pop = await until(() => document.querySelector('.dict-pop .pub-hw') && document.querySelector('.dict-pop'), 15000, 'the Cambridge entry');
+  const tabs = [...pop.querySelectorAll('.dict-tab')].map(t => t.textContent);
+  for (const t of ['Quick', 'Cambridge عربي', 'Oxford', 'Longman']) ok(tabs.includes(t), `${t} tab`);
+  ok(pop.querySelector('.pub-ar'), 'Arabic meaning from Cambridge');
+  await window.__shot?.('39a-dictionary-cambridge');
+  [...pop.querySelectorAll('.dict-tab')].find(t => t.textContent === 'Oxford').click();
+  await until(() => document.querySelector('.dict-pop .pub-oxford .pub-hw'), 15000, 'the Oxford entry');
+  await window.__shot?.('39b-dictionary-oxford');
+  eq(JSON.parse(localStorage.getItem('pdfy.settings')).dictTab, 'oxford', 'remembered as the first tab');
+  [...pop.querySelectorAll('.dict-tab')].find(t => t.textContent === 'Longman').click();
+  await until(() => document.querySelector('.dict-pop .pub-longman .pub-hw'), 15000, 'the Longman entry');
+  ok(pop.querySelector('.dict-sound.uk'), 'UK sound button');
+  pop.querySelector('.dict-head-tools .icon-btn').click();
+  ok(pop.classList.contains('docked'), 'pinned to the side');
+  document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  await wait(30);
+  ok(document.querySelector('.dict-pop'), 'stays open when pinned');
+  await window.__shot?.('39-dictionary-longman-pinned');
+  A.closeDictionary();
+  localStorage.removeItem('pdfy.settings');
+});
+
+await test('Publishers: with no internet, Quick still works and sound falls back to Windows', async () => {
+  A.setOfflineForTest(true);
+  try {
+    localStorage.setItem('pdfy.settings', JSON.stringify({ onlineDict: true, dictTab: 'oxford' }));
+    await A.showDictionary('river', { x: 300, y: 200 });
+    const msg = await until(() => document.querySelector('.dict-pop .dict-empty'), 6000, 'the offline message');
+    const pop = document.querySelector('.dict-pop');
+    ok(/No internet/.test(msg.textContent), 'says why');
+    [...pop.querySelectorAll('.dict-tab')].find(t => t.textContent === 'Quick').click();
+    await until(() => document.querySelector('.dict-pop .dict-senses li'), 4000, 'offline meanings');
+    ok(pop.querySelector('.dict-sound'), 'sound button still there');
+    A.closeDictionary();
+  } finally {
+    A.setOfflineForTest(false);
+    localStorage.removeItem('pdfy.settings');
+  }
 });
 
 // ---- Fixes from the code review ----

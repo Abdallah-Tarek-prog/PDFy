@@ -69,10 +69,12 @@ All of these are in the **Study** tab. The look is today's ribbon for now; see "
 | Any colour | Colour field, hue bar, hex and RGB codes, eyedropper for anywhere on screen, ready-made palettes, recent and starred colours | ✅ |
 | Preference sets | One click sets fonts, colours, note look, reading mode and word lookup: Study notes, Exam revision, Clean report, Night reading, Arabic notes. Save your own | ✅ |
 | Word lookup | Turn it on, then double-click or select a word. A pop-up shows UK and US pronunciation with play buttons, Arabic meanings right to left, and English meanings with examples. Also on the selection bar, the right-click menu and Ctrl+L | ✅ |
-| Real Longman, Oxford and Cambridge pages | One click opens the publisher's own page for the word in a small PDFy window: Longman, Oxford Learner's, Cambridge English–Arabic, and Reverso example sentences. Needs the internet | ✅ |
+| Cambridge, Oxford and Longman inside the pop-up | When online, the pop-up reads each publisher's own page for the word and lays it out in tabs: headword, part of speech, level, UK and US pronunciation, numbered meanings with signposts, and examples. Cambridge English–Arabic adds an Arabic translation for each meaning. Oxford's other entries (such as the verb) are one click. In the real app each page took 0.45 to 0.75 s | ✅ |
+| Open the publisher's page | One click opens the full page in a small PDFy window, plus Reverso example sentences and whole-sentence translation | ✅ |
+| Pin to the side | The pop-up can stay open at the side of the window while you read | ✅ |
 | Read text from a picture | Drag over a pasted screenshot, a scan or any part of a page. Each word found becomes a clickable spot right where it sits. Dark screenshots work: 84 words read from the test screenshot | ✅ |
-| Hearing words | Real recordings when online, otherwise a Windows voice. Arabic needs an Arabic voice added in Windows settings | 🟡 |
-| Licensed Oxford or Longman text inside the pop-up | Neither publisher offers a free feed. Oxford sells API access, and its free trial is 500 lookups. Longman has no public feed | ☁️ |
+| Hearing words | Online: the publisher's own recordings, including Longman's spoken example sentences; tested playing in the real app. Then Wiktionary's recordings. Offline: a Windows voice. This PC has US English and Arabic voices but no UK voice, so offline UK uses the US voice | ✅ |
+| If a publisher changes its page layout | That tab shows "could not read this page" and offers to open it. The reader for that site then needs updating | 🟡 |
 
 **How good the offline dictionary is.** Measured against lists of the most common English words.
 Word forms such as "running" and "went" count as found when they lead to the right word.
@@ -279,7 +281,7 @@ Adobe's own matrix could not be fully read, so treat this list as close, not exh
 - **Memory and smoothness:** `node tests/bigfile-test.mjs` and `node tests/scroll-test.mjs`.
 - **Real websites:** the theme scores above (`node tests/real-web-test.mjs`).
 - **Real mouse and keyboard:** 25 tests that move the mouse, drag and type as a person would, including on rotated pages (`node tests/browser-run.mjs --ui`).
-- **Study tools:** 21 tests in a hidden Edge window (`node tests/browser-run.mjs --study`), and 11 in the real exe, including vector saving, the Windows font list and the Longman window (`node tests/study-host-test.mjs`).
+- **Study tools:** 26 tests in a hidden Edge window (`node tests/browser-run.mjs --study`), including reading the three publishers' live pages, and 18 in the real exe, including vector saving, the Windows font list, the publishers' pages and recordings, and the reference window (`node tests/study-host-test.mjs`). The live-page tests need the internet.
 
 ---
 
