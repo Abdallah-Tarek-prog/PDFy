@@ -4,12 +4,11 @@ A PDF editor for Windows. Everything Xodo does is the goal, plus pasting images 
 their theme between light and dark, and study tools: a dictionary with Arabic, equations, and
 Markdown notes. See [FEATURES.md](FEATURES.md) for what works today.
 
-## Next: a completely new look
+## How it is laid out
 
-**We will design completely new UI pages and a new look for PDFy, far from Xodo, Adobe Acrobat
-and similar editors. It must be unique, distinctive and good to use.** Today's ribbon is a
-stand-in. The direction is in [DESIGN.md](DESIGN.md), with a picture of it in
-[design/concept.html](design/concept.html). Nothing in it is built yet.
+Like the Xodo app: a title bar with the window buttons (there is no Windows title bar), one toolbar row
+with three modes (Read, Edit and Study), and an Actions menu with every document tool and a search box.
+The keyboard shortcuts are Xodo's, and F1 lists and changes them. Themes are under View.
 
 ## Run it
 
@@ -35,6 +34,10 @@ powershell -ExecutionPolicy Bypass -File scripts/install.ps1
 | Theme conversion | Our own engine, in a background worker | `src/theme/engine.ts` |
 | Crash recovery | Writes edits to a local database a few seconds after each change | `src/features/recovery.ts` |
 | OCR | Tesseract, loaded only while it runs | `src/features/ocr.ts` |
+| Toolbars and menus | The Xodo-style rows, the More overflow, the Actions menu with search | `src/ui/chrome.ts`, `src/app.ts` |
+| Keyboard shortcuts | Xodo's keys, matched by key position, and the editor | `src/ui/shortcuts.ts` |
+| Window frame | No Windows caption, resize at every edge, header buttons | `host/FramelessWindow.cs` |
+| Themes | Nine interface themes | `public/themes.css`, `src/ui/themes.ts` |
 | Study tools | Dictionary, read from picture, equations, Markdown notes, fonts, colours, preference sets | `src/study/` |
 | Notes and equations in saved files | Printed by the engine into a small PDF, placed as real vector text | `src/study/box.ts`, `host/Program.cs` |
 | Offline dictionary | Wiktionary data, split into small files that load on demand | `vendor-dict/`, built by `scripts/build-dictionary.mjs` |
@@ -75,10 +78,11 @@ npm test
 | `npm test` | Theme engine and geometry, no browser |
 | `node tests/browser-run.mjs` | Every feature, in a hidden Edge window |
 | `node tests/browser-run.mjs --ui` | Real mouse and keyboard, in a hidden Edge window |
-| `node tests/browser-run.mjs --commands` | Every ribbon command through its real dialog |
+| `node tests/browser-run.mjs --commands` | Every toolbar and menu command through its real dialog |
 | `node tests/browser-run.mjs --study` | Study tools: equations, Markdown, dictionary, read from picture, fonts, colours, sets |
 | `node tests/study-host-test.mjs` | Study tools in the real `PDFy.exe`: vector saving, Windows fonts, the reference window |
-| `node tests/browser-run.mjs --visual` | Screenshots of each screen, into `tests/output/shots` |
+| `node tests/browser-run.mjs --visual` | Screenshots of each screen and every theme, into `tests/output/shots` |
+| `node scripts/check-themes.mjs` | Readability contrast of every theme |
 | `node tests/host-test.mjs` | The real `PDFy.exe`, including a forced crash |
 | `node tests/clipboard-test.mjs` | Real Ctrl+V in the real exe. Briefly uses your clipboard, then restores it |
 | `node tests/real-web-test.mjs` | Theme conversion scored against real websites |

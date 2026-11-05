@@ -12,7 +12,7 @@ export type Tool =
   | 'pen' | 'marker' | 'eraser' | 'text' | 'callout' | 'note' | 'stamp' | 'signature'
   | 'rect' | 'ellipse' | 'line' | 'arrow' | 'polygon' | 'polyline' | 'cloud'
   | 'distance' | 'perimeter' | 'area' | 'link' | 'whiteout' | 'redact' | 'edit-text' | 'snip' | 'crop' | 'crop-image' | 'cert-box' | 'attach'
-  | 'markdown' | 'read-picture'
+  | 'markdown' | 'read-picture' | 'multiselect' | 'lasso'
   | 'field-text' | 'field-check' | 'field-radio' | 'field-dropdown' | 'field-list' | 'field-signature';
 
 export interface ToolStyle { color: string; width: number; opacity: number; fill: string | null; fontSize: number; font?: FontFamily; fontName?: string; bold?: boolean; italic?: boolean }
@@ -210,6 +210,8 @@ export class Tools {
 
     switch (true) {
       case this.tool === 'select': this.downSelect(e, v); return;
+      case this.tool === 'multiselect': this.startMarquee(e, v); return;
+      case this.tool === 'lasso': this.startLasso(e, v); return;
       case MARKUP.has(this.tool): this.downMarkup(e, v); return;
       case this.tool === 'pen' || this.tool === 'marker': this.startInk(e, v); return;
       case this.tool === 'eraser': this.startEraser(e, v); return;
@@ -293,6 +295,55 @@ export class Tools {
   }
 
   /** Shift+drag on the page draws a box and selects everything inside it. */
+/** Selects these objects. After Multi-select or Lasso, the normal tool takes over so they can be moved. */
+  private chooseAll(v: PageView, found: Annot[]) {
+    if (this.tool === 'multiselect' || this.tool === 'lasso') {
+      this.tool = 'select';
+      this.applyMode();
+      this.hooks.onTool?.('select');
+    }
+    this.viewer.select(null);
+    found.forEach((a, i) => {
+      if (i === 0) this.viewer.select(v.page.id, a.id);
+      else this.viewer.toggleSelect(v.page.id, a.id);
+    });
+    this.hooks.onSelection?.();
+  }
+
+  /** Draw a loop around objects. Everything whose middle is inside it is selected. */
+  private startLasso(e: PointerEvent, v: PageView) {
+    e.preventDefault();
+    const pts: number[] = [...this.local(v, e)];
+    const node = s('path', { class: 'rubber lasso', d: '' });
+    v.selG.append(node);
+    this.gesture = {
+      move: m => {
+        const [x, y] = this.local(v, m);
+        if (Math.hypot(x - pts[pts.length - 2], y - pts[pts.length - 1]) < 3) return;
+        pts.push(x, y);
+        node.setAttribute('d', `M${pts.slice(0, 2).join(' ')}L${pts.slice(2).join(' ')}Z`);
+      },
+      up: () => {
+        node.remove();
+        const inside = (x: number, y: number) => {
+          let hit = false;
+          for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
+            const xi = pts[i], yi = pts[i + 1], xj = pts[j], yj = pts[j + 1];
+            if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi || 1e-9) + xi) hit = !hit;
+          }
+          return hit;
+        };
+        const found = pts.length < 6 ? [] : v.page.annots.filter(a => {
+          const b = annotBounds(a);
+          const c = toScreen(v.vp, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
+          return inside(c[0], c[1]);
+        });
+        this.chooseAll(v, found);
+      },
+      cancel: () => node.remove(),
+    };
+  }
+
   private startMarquee(e: PointerEvent, v: PageView) {
     e.preventDefault();
     const [sx, sy] = this.local(v, e);
@@ -315,12 +366,7 @@ export class Tools {
           const p0 = toScreen(v.vp, b[0], b[1]), p1 = toScreen(v.vp, b[2], b[3]);
           return Math.min(p0[0], p1[0]) < x1 && Math.max(p0[0], p1[0]) > x0 && Math.min(p0[1], p1[1]) < y1 && Math.max(p0[1], p1[1]) > y0;
         });
-        this.viewer.select(null);
-        inside.forEach((a, i) => {
-          if (i === 0) this.viewer.select(v.page.id, a.id);
-          else this.viewer.toggleSelect(v.page.id, a.id);
-        });
-        this.hooks.onSelection?.();
+        this.chooseAll(v, inside);
       },
       cancel: () => node.remove(),
     };

@@ -1,5 +1,10 @@
 # PDFy design direction
 
+> **Update 2026-11-06.** The owner changed direction after using Xodo side by side. PDFy now follows
+> Xodo's structure: the same tool layout, Xodo's keyboard shortcuts, and a window with no Windows title
+> bar. PDFy keeps its own colours. The rest of this file is the earlier "page margin" idea. It is kept as
+> a possible later addition (notes level with their line), not as the plan.
+
 **We will design completely new UI pages and a completely new look for PDFy, far from Xodo, Adobe Acrobat and similar editors. It must be unique, distinctive and good to use.** The ribbon goes. Every feature stays reachable.
 
 Recorded 2026-11-05. Direction only: nothing here is built yet. Picture of it: [design/concept.html](design/concept.html), open it in a browser.

@@ -18,7 +18,9 @@ internal static class Program
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log("Fatal: " + e.ExceptionObject);
         TaskScheduler.UnobservedTaskException += (_, e) => { Log("Task: " + e.Exception); e.SetObserved(); };
 
-        ApplicationConfiguration.Initialize();
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new MainForm(args));
     }
 
@@ -42,14 +44,14 @@ internal static class Program
     }
 }
 
-internal sealed class MainForm : Form
+internal sealed partial class MainForm : Form
 {
     private const string Host = "pdfy.local";
     private const string PrintHost = "print.pdfy.local";
     private const string FontHost = "fonts.pdfy.local";
     private const int MaxRestarts = 5;
 
-    private WebView2 _web = new() { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(23, 23, 26) };
+    private WebView2 _web = new() { Dock = DockStyle.Fill, DefaultBackgroundColor = HeaderColor };
     private readonly Queue<string> _pendingFiles = new();
     private CoreWebView2Environment? _env;
     private bool _pageReady;
@@ -60,6 +62,7 @@ internal sealed class MainForm : Form
     public MainForm(string[] args)
     {
         Text = "PDFy";
+        BackColor = HeaderColor;
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         MinimumSize = new Size(640, 420);
         Controls.Add(_web);
@@ -115,6 +118,9 @@ internal sealed class MainForm : Form
         core.SetVirtualHostNameToFolderMapping(FontHost, Environment.GetFolderPath(Environment.SpecialFolder.Fonts), CoreWebView2HostResourceAccessKind.Allow);
 
         var s = core.Settings;
+        // Only the main view uses HTML title-bar regions, including after crash recovery.
+        try { s.IsNonClientRegionSupportEnabled = true; }
+        catch (Exception e) { UseStandardFrame(e); }
         // The page has its own shortcuts for print, search and zoom.
         s.AreBrowserAcceleratorKeysEnabled = false;
         s.IsZoomControlEnabled = false;
@@ -129,6 +135,8 @@ internal sealed class MainForm : Form
         core.DocumentTitleChanged += (_, _) => Text = string.IsNullOrEmpty(core.DocumentTitle) ? "PDFy" : core.DocumentTitle;
         core.ProcessFailed += OnProcessFailed;
         core.WebMessageReceived += OnWebMessage;
+        core.ContainsFullScreenElementChanged += (_, _) => SetFullScreen(core.ContainsFullScreenElement);
+        _web.KeyDown += OnWindowKeyDown;
 
         // This is the user's own app and their own files, so these never need a browser-style prompt:
         // pasting after a click, and getting back to a file they already opened, for example after a crash.
@@ -222,7 +230,7 @@ internal sealed class MainForm : Form
         {
             Controls.Remove(_web);
             _web.Dispose();
-            var fresh = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(23, 23, 26) };
+            var fresh = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };
             _web = fresh;
             Controls.Add(fresh);
             _env = null;
@@ -245,7 +253,14 @@ internal sealed class MainForm : Form
             {
                 case "ready":
                     _pageReady = true;
+                    SendWindowState();
                     SendPendingFiles();
+                    break;
+                case "win":
+                    HandleWindowAction(doc.RootElement.GetProperty("action").GetString());
+                    break;
+                case "win-color":
+                    SetWindowColor(doc.RootElement.GetProperty("color").GetString());
                     break;
                 case "close-ok":
                     _closeApproved = true;

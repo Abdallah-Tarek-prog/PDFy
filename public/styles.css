@@ -585,3 +585,111 @@ kbd { font: 11px var(--font); padding: 0 4px; border: 1px solid var(--border); b
 .pub-chip { padding: 2px 9px; border-radius: 11px; border: 1px solid var(--border); font-size: 12px; }
 .pub-chip:hover { border-color: var(--pub-ink); color: var(--pub-ink); }
 .pub-see { margin: 2px 0 0 18px; font-size: 12.5px; color: var(--muted); }
+
+/* ===== The Xodo-style frame: title bar, one toolbar row, document tabs ===== */
+#app { display: flex; flex-direction: column; height: 100%; }
+#app > .workspace { flex: 1; min-height: 0; }
+.titlebar { display: flex; align-items: center; gap: 8px; height: 34px; min-height: 34px; padding: 0 0 0 12px; background: var(--chrome, var(--surface)); color: var(--chrome-text, var(--text)); border-bottom: 0; app-region: drag; -webkit-app-region: drag; user-select: none; }
+.titlebar button, .titlebar input { app-region: no-drag; -webkit-app-region: no-drag; }
+.titlebar .brand { padding: 0; font-size: 13px; color: var(--chrome-text, var(--text)); }
+.titlebar .brand svg { color: var(--accent); }
+.title-text { flex: 1; min-width: 0; text-align: center; font-size: 12px; color: var(--chrome-muted, var(--muted)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title-actions { padding: 0; }
+.title-actions .icon-btn { color: var(--chrome-muted, var(--muted)); }
+.title-actions .icon-btn:hover { background: var(--chrome-hover, var(--surface-2)); color: var(--chrome-text, var(--text)); }
+.win-buttons { display: flex; align-self: stretch; }
+.win-btn { width: 46px; display: grid; place-items: center; color: var(--chrome-text, var(--text)); }
+.win-btn:hover { background: var(--chrome-hover, var(--surface-2)); }
+.win-btn.close:hover { background: #c42b1c; color: #fff; }
+html.win-blur .titlebar { color: var(--chrome-muted, var(--muted)); }
+
+.toolbar { background: var(--chrome, var(--surface)); border-bottom: 1px solid var(--chrome-border, var(--border)); }
+.tb-row { display: flex; align-items: center; height: 54px; padding: 0 8px; overflow: hidden; }
+.tb-group { display: flex; align-items: center; gap: 1px; flex-shrink: 0; }
+.tb-spacer { flex: 1; min-width: 8px; }
+.tb-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 50px; max-width: 78px; height: 48px; padding: 3px 5px 2px; border-radius: 6px; color: var(--chrome-text, var(--text)); flex-shrink: 0; }
+.tb-btn svg { flex-shrink: 0; }
+.tb-label { display: flex; align-items: center; gap: 2px; font-size: 11px; line-height: 1.1; color: var(--chrome-muted, var(--muted)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.tb-btn:hover:not(:disabled) { background: var(--chrome-hover, var(--surface-2)); }
+.tb-btn:hover:not(:disabled) .tb-label { color: var(--chrome-text, var(--text)); }
+.tb-btn.active { background: var(--chrome-active, var(--accent-soft)); color: var(--accent-text); }
+.tb-btn.active .tb-label { color: var(--chrome-text, var(--text)); }
+.tb-btn:disabled { opacity: .38; }
+.tb-sep { width: 1px; height: 30px; margin: 0 5px; background: var(--chrome-border, var(--border)); flex-shrink: 0; }
+
+.tabstrip { display: flex; align-items: flex-end; gap: 2px; height: 32px; min-height: 32px; padding: 0 6px; background: var(--chrome-2, var(--bg)); }
+.tabstrip .doc-tabs { align-self: stretch; align-items: flex-end; }
+.tabstrip .doc-tab { height: 28px; color: var(--chrome-muted, var(--muted)); border-radius: 6px 6px 0 0; }
+.tabstrip .doc-tab:hover { background: var(--chrome-hover, var(--surface-2)); color: var(--chrome-text, var(--text)); }
+.tabstrip .doc-tab.active { background: var(--tab-active, var(--surface)); color: var(--chrome-text, var(--text)); box-shadow: inset 0 2px 0 var(--accent); }
+.tabstrip .doc-tab .icon-btn { color: inherit; }
+.tab-add { align-self: center; color: var(--chrome-muted, var(--muted)); }
+.tab-add:hover { background: var(--chrome-hover, var(--surface-2)) !important; color: var(--chrome-text, var(--text)) !important; }
+.style-bar.quiet { display: none; }
+
+/* Drop-downs from the toolbar. Wide ones show their sections side by side. */
+.dropdown { position: fixed; z-index: 880; min-width: 230px; max-width: calc(100vw - 12px); max-height: calc(100vh - 80px); overflow: auto; padding: 6px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.dropdown.wide { width: min(980px, calc(100vw - 12px)); }
+.dropdown.wide .dd-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 4px 10px; }
+.dd-search { width: 100%; height: 32px; margin-bottom: 6px; padding: 0 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; color: var(--text); }
+.dd-section { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 6px; }
+.dd-title { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; color: var(--accent-text); padding: 6px 8px 3px; }
+.dd-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px; border-radius: 6px; text-align: start; font-size: 13px; color: var(--text); }
+.dd-item svg { color: var(--muted); flex-shrink: 0; }
+.dd-item:hover:not(:disabled), .dd-item:focus-visible { background: var(--surface-2); outline: none; }
+.dd-item:hover:not(:disabled) svg { color: var(--accent-text); }
+.dd-item.on { background: var(--accent-soft); }
+.dd-item.on svg { color: var(--accent-text); }
+.dd-item:disabled { opacity: .4; }
+.dd-label { flex: 1; }
+.dd-item kbd { font-size: 10.5px; color: var(--muted); background: var(--surface-3); border-radius: 4px; padding: 1px 5px; }
+.dd-empty { color: var(--muted); padding: 18px 10px; text-align: center; }
+
+/* The page area, with page and zoom controls floating at the bottom corners, like Xodo. */
+.stage { flex: 1; position: relative; display: flex; min-width: 0; }
+.page-pill, .zoom-pill { position: absolute; bottom: 14px; z-index: 30; display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: var(--chrome, var(--surface)); color: var(--chrome-text, var(--text)); border: 1px solid var(--chrome-border, var(--border)); border-radius: 9px; box-shadow: var(--shadow); font-size: 12px; }
+.page-pill { left: 16px; }
+.zoom-pill { right: 22px; }
+.page-pill .icon-btn, .zoom-pill .icon-btn { color: var(--chrome-muted, var(--muted)); }
+.page-pill .icon-btn:hover, .zoom-pill .icon-btn:hover { background: var(--chrome-hover, var(--surface-2)) !important; color: var(--chrome-text, var(--text)) !important; }
+.page-pill .of { color: var(--chrome-muted, var(--muted)); }
+.page-pill .page-input, .zoom-pill .zoom-input { background: var(--chrome-2, var(--surface-2)); color: var(--chrome-text, var(--text)); border-color: var(--chrome-border, var(--border)); height: 24px; }
+.status-pill { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 30; padding: 5px 12px; border-radius: 14px; background: var(--chrome, var(--surface)); color: var(--chrome-text, var(--text)); border: 1px solid var(--chrome-border, var(--border)); font-size: 12px; box-shadow: var(--shadow); }
+.page { box-shadow: var(--page-shadow, 0 1px 3px rgb(0 0 0 / .25), 0 4px 14px rgb(0 0 0 / .12)); }
+
+/* The side panel: opened from the toolbar, with its own tabs at the top. */
+.side { flex-direction: column; }
+.side .rail { flex-direction: row; gap: 1px; padding: 4px 6px; border-right: 0; border-bottom: 1px solid var(--border); background: var(--surface); }
+.side .rail-btn { width: 30px; height: 30px; }
+.rail-gap { flex: 1; }
+.side-body { flex: 1; min-height: 0; display: flex; }
+
+/* Keyboard shortcuts list */
+.dialog.wide:has(.sc-dialog) { width: min(720px, 100%); }
+.sc-dialog { display: flex; flex-direction: column; gap: 8px; }
+.sc-filter { height: 32px; padding: 0 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; }
+.sc-list { max-height: 58vh; overflow: auto; padding-right: 4px; }
+.sc-group { margin: 12px 0 4px; }
+.sc-group h3 { font-size: 13px; font-weight: 650; color: var(--accent-text); }
+.sc-group p { font-size: 12px; }
+.sc-row { display: grid; grid-template-columns: 22px 1fr auto auto; align-items: center; gap: 10px; padding: 5px 6px; border-radius: 6px; }
+.sc-row:hover { background: var(--surface-2); }
+.sc-row svg { color: var(--muted); }
+.sc-row.changed .sc-label { font-weight: 600; }
+.sc-row.capturing { background: var(--accent-soft); }
+.sc-label { font-size: 13px; }
+.sc-tag { margin-left: 6px; font-size: 10px; font-weight: 700; color: var(--accent-text); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }
+.sc-keys { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.sc-combo { display: inline-flex; align-items: center; gap: 2px; }
+.sc-combo kbd { min-width: 22px; text-align: center; font: 600 11.5px var(--font); padding: 2px 6px; border-radius: 5px; background: var(--surface-3); border: 1px solid var(--border); border-bottom-width: 2px; }
+.sc-plus { color: var(--muted); font-size: 11px; }
+.sc-hint { font-size: 12px; color: var(--accent-text); }
+.sc-fixed { font-size: 11px; color: var(--muted); width: 104px; text-align: right; }
+.sc-actions { display: flex; gap: 4px; width: 104px; justify-content: flex-end; }
+.sc-foot { display: flex; justify-content: flex-end; }
+.rubber.lasso { fill: rgb(26 86 219 / .08); stroke: var(--accent); stroke-dasharray: 4 3; stroke-width: 1.2; }
+
+/* The style row floats at the top of the page area, like Xodo's style pop-up, so nothing shifts. */
+.stage > .style-bar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 35; width: max-content; max-width: calc(100% - 24px); min-height: 38px; padding: 4px 12px; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.status-pill.hint { bottom: 16px; color: var(--chrome-muted, var(--muted)); max-width: min(560px, calc(100% - 420px)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-pill:not(.hint) { bottom: 54px; }

@@ -106,8 +106,7 @@ try {
     dt.items.add(new File([await c.convertToBlob({ type: 'image/png' })], 'a.png', { type: 'image/png' }));
     document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
     await new Promise(r => setTimeout(r, 900));
-    const buttons = [...document.querySelectorAll('.r-btn')];
-    buttons.find(b => b.textContent.trim() === 'Save').click();
+    (await window.__pdfy.revealCommand('Save')).click();
     await new Promise(r => setTimeout(r, 2500));
     return { title: document.title, toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '), dialog: document.querySelector('.overlay-bg')?.textContent ?? null };
   })()`);

@@ -17,6 +17,7 @@ import { renderMarkdownInto } from './markdown';
 import { MATH_GROUPS, mathBoxSize, texToSvg, type MathResult } from './math';
 import { allThemes, customThemes, ensureRichCss, saveCustomThemes, themeById, themeVars, type MdTheme } from './mdthemes';
 import { allSets, customSets, saveCustomSets, type PrefSet } from './prefsets';
+import { applyUiTheme, DEFAULT_DARK, DEFAULT_LIGHT } from '../ui/themes';
 import { closeWordLayer, readWords, regionCanvas, showWordLayer } from './readpicture';
 
 export interface StudyHost {
@@ -256,8 +257,7 @@ export class Study {
     this.lookupOn = set.lookup;
     if (!set.lookup) closeDictionary();
     this.host.setReading(set.reading);
-    document.documentElement.dataset.theme = set.uiTheme;
-    try { localStorage.setItem('pdfy.uiTheme', set.uiTheme); } catch { /* Storage may be off. */ }
+    applyUiTheme(set.uiTheme === 'dark' ? DEFAULT_DARK : DEFAULT_LIGHT);
     this.host.refreshStudy();
     toast(fontName ? `“${set.name}” is on.` : `“${set.name}” is on. Its font, ${set.textFont}, is not on this PC, so the standard one stays.`, 'ok');
   }

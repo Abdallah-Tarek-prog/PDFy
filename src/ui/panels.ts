@@ -40,11 +40,13 @@ export class Panels {
       bookmarks: new BookmarksPanel(app), search: this.search, layers: new LayersPanel(app), attachments: new AttachmentsPanel(app),
     };
     this.rail = h('nav', { class: 'rail', 'aria-label': 'Side panels' }, ...PANELS.map(p => {
-      const b = h('button', { class: 'rail-btn', title: p.label, 'aria-label': p.label, onclick: () => this.toggle(p.id) }, icon(p.icon, 20));
+      const b = h('button', { class: 'rail-btn', title: p.label, 'aria-label': p.label, onclick: () => this.show(p.id) }, icon(p.icon, 17));
       this.buttons.set(p.id, b);
       return b;
     }));
-    this.host = h('aside', { class: 'side' }, ...Object.values(this.panels).map(p => p.el));
+    // Like Xodo, the panel opens from the toolbar. Its tabs switch between the lists, and × closes it.
+    this.rail.append(h('span', { class: 'rail-gap' }), h('button', { class: 'rail-btn', title: 'Close the panel', 'aria-label': 'Close the panel', onclick: () => this.show(null) }, icon('close', 15)));
+    this.host = h('aside', { class: 'side' }, this.rail, h('div', { class: 'side-body' }, ...Object.values(this.panels).map(p => p.el)));
     this.sync();
   }
 

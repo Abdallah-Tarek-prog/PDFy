@@ -411,11 +411,11 @@ await test('Study tab: every button is there and works without a crash', async (
   await closeAll();
   const s = app.newDocument();
   await settle();
-  [...document.querySelectorAll('.ribbon-tab')].find(b => b.textContent === 'Study').click();
+  app.setMode('study');
   await wait(40);
-  const labels = [...document.querySelectorAll('.r-btn')].map(b => b.textContent.trim());
+  const labels = [...document.querySelectorAll('.tb-btn')].map(b => b.dataset.label);
   for (const l of ['Word lookup', 'Read picture', 'Markdown note', 'Equation', 'Note themes', 'Preferences']) ok(labels.includes(l), `${l} button`);
-  [...document.querySelectorAll('.r-btn')].find(b => b.textContent.trim() === 'Note themes').click();
+  (await app.revealCommand('Note themes')).click();
   await until(() => document.querySelector('.theme-dialog .md-box h1'), 4000, 'the theme editor with a preview');
   // Editing a ready-made theme makes your own copy.
   const before = JSON.parse(localStorage.getItem('pdfy.mdThemes') ?? '[]').length;
@@ -427,7 +427,7 @@ await test('Study tab: every button is there and works without a crash', async (
   eq(after.at(-1).size, 15, 'with the change');
   document.querySelector('.overlay-bg .dialog-foot .btn').click();
   localStorage.removeItem('pdfy.mdThemes');
-  [...document.querySelectorAll('.ribbon-tab')].find(b => b.textContent === 'Home').click();
+  app.setMode('view');
   s.dirty = false;
 });
 
@@ -616,7 +616,7 @@ await test('Screens: study tools, for checking by eye', async () => {
   const m = await A.texToSvg(String.raw`f(x) = \int_{-\infty}^{\infty} \hat f(\xi)\, e^{2 \pi i \xi x} \, d\xi`, true);
   const size = A.mathBoxSize(m, 18);
   s.addAnnots(page, [{ id: 'm1', kind: 'math', rect: [350, 640, 350 + size.w, 640 + size.h], color: '#1a56db', opacity: 1, width: 0, fill: null, fontSize: 18, latex: 'x', mathSvg: m.svg }]);
-  [...document.querySelectorAll('.ribbon-tab')].find(b => b.textContent === 'Study').click();
+  app.setMode('study');
   await wait(1200);
   await window.__shot('30-study-note-equation');
   await A.showDictionary('water', { x: 420, y: 260, sentence: 'Plants need water to grow.' });

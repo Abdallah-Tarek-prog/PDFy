@@ -49,9 +49,10 @@ function screen(page, px, py) {
 }
 const tool = async name => { app.tools.setTool(name); await wait(30); };
 const pressRibbon = async (tab, label) => {
-  [...document.querySelectorAll('.ribbon-tab')].find(b => b.textContent === tab).click();
+  // The tab name is from the old ribbon. Buttons are now found wherever they live: toolbar, menu or More.
+  void tab;
+  const b = await app.revealCommand(label);
   await wait(50);
-  const b = [...document.querySelectorAll('.r-btn')].find(x => x.textContent.trim() === label);
   ok(b, `button ${label}`);
   const r = b.getBoundingClientRect();
   await click(r.left + r.width / 2, r.top + r.height / 2);
@@ -395,7 +396,7 @@ await test('Stamp and signature through the real ribbon', async () => {
   eq(app.tools.tool, 'signature', 'reused');
   await key('Escape', 'Escape', 27);
   localStorage.removeItem('pdfy.signatures');
-  [...document.querySelectorAll('.ribbon-tab')].find(b => b.textContent === 'Home').click();
+  app.setMode('view');
 });
 
 await test('Zoom: Ctrl+wheel, shortcuts, typing a number', async () => {
@@ -570,15 +571,20 @@ await test('Document tabs: switch and close', async () => {
   eq(tabs().length, 1, 'closed');
 });
 
-await test('Keyboard: Escape, V, H, Ctrl+F, Ctrl+D', async () => {
+await test('Keyboard: Xodo keys: Escape, P, H, I, Ctrl+F, Ctrl+D', async () => {
   const s = await fresh();
   await tool('pen');
   await key('Escape', 'Escape', 27);
   eq(app.tools.tool, 'select', 'Escape returns to Select');
+  await key('p', 'KeyP', 80, 0, 'p');
+  eq(app.tools.tool, 'hand', 'P is Pan, as in Xodo');
   await key('h', 'KeyH', 72, 0, 'h');
-  eq(app.tools.tool, 'hand', 'H');
-  await key('v', 'KeyV', 86, 0, 'v');
-  eq(app.tools.tool, 'select', 'V');
+  eq(app.tools.tool, 'highlight', 'H is Highlight, as in Xodo');
+  eq(app.mode, 'edit', 'and the Edit tools show');
+  await key('i', 'KeyI', 73, 0, 'i');
+  eq(app.tools.tool, 'pen', 'I is Ink');
+  await key('Escape', 'Escape', 27);
+  eq(app.tools.tool, 'select', 'Escape again');
   await key('f', 'KeyF', 70, 2);
   await wait(100);
   eq(app.panels.active, 'search', 'Ctrl+F opens search');
@@ -719,7 +725,7 @@ await test('Right-click menus, help and navigation keys', async () => {
   eq(app.viewer.current, 0, 'Home goes to the first page');
   await key('F1', 'F1', 112);
   await wait(60);
-  ok(document.querySelector('.help-table'), 'F1 shows shortcuts');
+  ok(document.querySelector('.sc-dialog .sc-row'), 'F1 shows the shortcuts list');
   document.querySelector('.overlay-bg .primary').click();
   await wait(50);
   await key('a', 'KeyA', 65, 2);

@@ -85,9 +85,10 @@ async function fresh(name = 'normal.pdf') {
   return s;
 }
 const ribbon = async (tab, label) => {
-  [...document.querySelectorAll('.ribbon-tab')].find(b => b.textContent === tab).click();
+  // The tab name is from the old ribbon. Buttons are now found wherever they live: toolbar, menu or More.
+  void tab;
+  const b = await app.revealCommand(label);
   await wait(20);
-  const b = [...document.querySelectorAll('.r-btn')].find(x => x.textContent.trim() === label);
   ok(b, `button ${label} on ${tab}`);
   ok(!b.disabled, `button ${label} is enabled`);
   b.click();
@@ -623,7 +624,7 @@ await test('Reading modes and full screen buttons', async () => {
   await ribbon('Home', 'Full screen');
   await wait(30);
   eq(document.documentElement.dataset.fs, '1', 'full screen asked for');
-  [...document.querySelectorAll('.ribbon-tab')].find(b => b.textContent === 'Home').click();
+  app.setMode('view');
 });
 
 await test('Pin a file to a spot, and a voice note', async () => {

@@ -203,7 +203,8 @@ export class Viewer {
     }
     this.rows = rows;
     const singleH = this.layout === 'single' ? (rows[this.rowOf[this.current]]?.h ?? 0) + GAP * 2 : y;
-    this.sizer.style.height = `${singleH}px`;
+    // Room for the page and zoom controls that float over the bottom corners.
+    this.sizer.style.height = `${singleH + 56}px`;
     this.sizer.style.width = `${maxW + GAP * 2}px`;
     for (const v of this.views.values()) { this.placeView(v); v.needsRender = v.renderedAt !== this.scale || v.needsRender; }
     this.restoreAnchor(anchor);

@@ -123,6 +123,19 @@ try {
   }
   check('Other sites are refused', pages.refused);
 
+  // Full screen covers the whole monitor, not just the window, and comes back as it was.
+  const full = await run(`(async () => {
+    const before = [innerWidth, innerHeight];
+    await document.documentElement.requestFullscreen();
+    await new Promise(r => setTimeout(r, 1500));
+    const during = [innerWidth, innerHeight, screen.width, screen.height];
+    await document.exitFullscreen();
+    await new Promise(r => setTimeout(r, 1500));
+    return { before, during, after: [innerWidth, innerHeight] };
+  })()`);
+  check('Full screen covers the whole screen', Math.abs(full.during[0] - full.during[2]) <= 2 && Math.abs(full.during[1] - full.during[3]) <= 2, `${full.during[0]}x${full.during[1]} on a ${full.during[2]}x${full.during[3]} screen`);
+  check('Leaving full screen restores the window', Math.abs(full.after[0] - full.before[0]) <= 2 && Math.abs(full.after[1] - full.before[1]) <= 2, `${full.before.join('x')} then ${full.after.join('x')}`);
+
   // The publishers' pages open in PDFy's own small window.
   await run(`window.chrome.webview.postMessage({ type: 'reference', url: 'https://www.ldoceonline.com/dictionary/water', title: 'Longman: water' })`);
   let ref = null;

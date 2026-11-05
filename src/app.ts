@@ -31,13 +31,14 @@ import { closeDictionary } from './study/dictpopup';
 import { closeWordLayer } from './study/readpicture';
 import { colourButton } from './ui/colorpicker';
 import { fontButton } from './ui/fontpicker';
-import { Panels } from './ui/panels';
+import { Panels, type PanelId } from './ui/panels';
+import { closeDropdown, ToolRow, windowButtons, type ChromeHooks, type Cmd } from './ui/chrome';
+import { keyLabel, match, shortcutsDialog } from './ui/shortcuts';
+import { applyUiTheme, currentUiTheme, DEFAULT_DARK, DEFAULT_LIGHT, UI_THEMES } from './ui/themes';
 import { Tools, type Tool } from './view/tools';
 import { toScreen, viewportFor } from './core/model';
 import { Viewer, type PageView } from './view/viewer';
 
-type RItem = { icon: string; label: string; title?: string; tool?: Tool; run?: () => unknown; needsDoc?: boolean; id?: string };
-type RTab = { id: string; label: string; groups: RItem[][] };
 
 const COLOURS = ['#111111', '#d92d20', '#f79009', '#ffd400', '#0b8a4f', '#1a56db', '#7a5af8', '#ffffff'];
 const STAMPS: [string, string][] = [['APPROVED', '#0b8a4f'], ['REJECTED', '#d92d20'], ['DRAFT', '#1a56db'], ['FINAL', '#0b8a4f'], ['CONFIDENTIAL', '#d92d20'], ['REVIEWED', '#7a5af8'], ['VOID', '#d92d20'], ['COPY', '#475467'], ['FOR COMMENT', '#b54708']];
@@ -52,21 +53,22 @@ export class App {
   imageBar!: ImageBar;
 
   private tabsEl = h('div', { class: 'doc-tabs', role: 'tablist' });
-  private ribbonTabs = h('div', { class: 'ribbon-tabs', role: 'tablist' });
-  private ribbonEl = h('div', { class: 'ribbon', role: 'toolbar', 'aria-label': 'Tools' });
   private styleBar = h('div', { class: 'style-bar', 'aria-label': 'Style' });
   private startEl = h('div', { class: 'start' });
   private pageInput = h('input', { class: 'page-input', 'aria-label': 'Page number', inputmode: 'numeric' });
   private pageTotal = h('span', null, '');
   private zoomInput = h('input', { class: 'zoom-input', 'aria-label': 'Zoom', inputmode: 'numeric' });
   private memEl = h('span', { title: 'Memory the page is using right now' });
-  private statusMsg = h('span', { class: 'grow' });
-  private activeTab = 'home';
-  private tabs: RTab[] = [];
-  private buttons = new Map<RItem, HTMLButtonElement>();
+  private statusMsg = h('div', { class: 'status-pill', role: 'status', hidden: true });
+  /** A short tip for the current tool, at the bottom, so it never covers the page. */
+  private hintEl = h('div', { class: 'status-pill hint', role: 'note', hidden: true });
+  private titleText = h('div', { class: 'title-text' });
+  private chromeHooks: ChromeHooks = { hasDoc: () => !!this.session, keyFor: id => keyLabel(id) };
+  private row = new ToolRow(this.chromeHooks, 'Tools');
+  private cmd!: Record<string, Cmd>;
   private journalTimer = 0;
   private journalOff = new Map<Session, () => void>();
-  private clip: { annot: Annot; pageId: string } | null = null;
+  private clip: { annots: Annot[]; pageId: string } | null = null;
   private stampLabel = 'APPROVED';
   private signature: Annot['image'] | null = null;
   private measure = this.loadMeasure();
@@ -84,34 +86,33 @@ export class App {
       this.tools.setTool('crop-image');
     });
     this.study = new Study(this);
-    this.tabs = this.defineTabs();
+    this.cmd = this.defineCommands();
 
-    const themeBtn = h('button', { class: 'icon-btn', title: 'Light or dark interface', 'aria-label': 'Switch interface theme', onclick: () => this.toggleUiTheme() }, icon('contrast', 16));
+    // Like Xodo: the app's own title bar (the Windows one is gone), one toolbar row, then the documents.
     root.append(
       h('header', { class: 'titlebar' },
-        h('div', { class: 'brand' }, icon('contrast', 18), h('span', null, 'PDFy')),
-        this.tabsEl,
+        h('div', { class: 'brand' }, icon('contrast', 16), h('span', null, 'PDFy')),
+        this.titleText,
         h('div', { class: 'title-actions' },
-          h('button', { class: 'icon-btn', title: 'Open (Ctrl+O)', 'aria-label': 'Open', onclick: safe(() => this.openDialog(), 'Opening') }, icon('plus', 16)),
-          h('button', { class: 'icon-btn', title: 'Shortcuts (F1)', 'aria-label': 'Shortcuts', onclick: safe(() => this.showHelp(), 'Help') }, icon('info', 16)),
-          h('button', { class: 'icon-btn', title: 'Preferences', 'aria-label': 'Preferences', onclick: safe(() => this.settingsDialog(), 'Preferences') }, icon('settings', 16)),
-          themeBtn)),
-      h('div', { class: 'ribbon-wrap' }, this.ribbonTabs, this.ribbonEl, this.styleBar),
-      h('main', { class: 'workspace' }, this.panels.rail, this.panels.host, h('div', { style: { flex: '1', position: 'relative', display: 'flex', minWidth: '0' } }, viewerEl, this.startEl)),
-      h('footer', { class: 'statusbar' },
-        h('div', { class: 'status-group' },
+          h('button', { class: 'icon-btn', title: 'Light or dark interface', 'aria-label': 'Switch light or dark', onclick: () => this.toggleUiTheme() }, icon('contrast', 15))),
+        windowButtons()),
+      h('div', { class: 'toolbar' }, this.row.el),
+      h('div', { class: 'tabstrip' }, this.tabsEl,
+        h('button', { class: 'icon-btn tab-add', title: `Open (${keyLabel('open')})`, 'aria-label': 'Open a document', onclick: safe(() => this.openDialog(), 'Opening') }, icon('plus', 15))),
+      h('main', { class: 'workspace' }, this.panels.host, h('div', { class: 'stage' }, viewerEl, this.startEl, this.styleBar,
+        h('div', { class: 'page-pill', role: 'group', 'aria-label': 'Page' },
           h('button', { class: 'icon-btn small', title: 'Previous page', 'aria-label': 'Previous page', onclick: () => this.viewer.goTo(this.viewer.current - 1) }, icon('chevLeft', 14)),
-          'Page', this.pageInput, 'of', this.pageTotal,
+          this.pageInput, h('span', { class: 'of' }, '/'), this.pageTotal,
           h('button', { class: 'icon-btn small', title: 'Next page', 'aria-label': 'Next page', onclick: () => this.viewer.goTo(this.viewer.current + 1) }, icon('chevRight', 14))),
-        h('div', { class: 'status-group' },
-          h('button', { class: 'icon-btn small', title: 'Zoom out', 'aria-label': 'Zoom out', onclick: () => this.zoomBy(0.85) }, icon('zoomOut', 14)),
+        h('div', { class: 'zoom-pill', role: 'group', 'aria-label': 'Zoom' },
+          h('button', { class: 'icon-btn small', title: 'Fit width', 'aria-label': 'Fit width', onclick: () => this.viewer.setFit('width') }, icon('fitWidth', 14)),
+          h('button', { class: 'icon-btn small', title: `Zoom out (${keyLabel('zoom-out')})`, 'aria-label': 'Zoom out', onclick: () => this.zoomBy(0.85) }, icon('zoomOut', 14)),
           this.zoomInput,
-          h('button', { class: 'icon-btn small', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => this.zoomBy(1.18) }, icon('zoomIn', 14))),
-        this.statusMsg,
-        this.memEl),
+          h('button', { class: 'icon-btn small', title: `Zoom in (${keyLabel('zoom-in')})`, 'aria-label': 'Zoom in', onclick: () => this.zoomBy(1.18) }, icon('zoomIn', 14))),
+        this.hintEl, this.statusMsg)),
     );
 
-    this.drawTabsRibbon();
+    this.setMode('view');
     this.drawStyleBar();
     this.wire();
     this.buildSelBar();
@@ -272,150 +273,301 @@ export class App {
 
   // ---- Ribbon ----
 
-  private defineTabs(): RTab[] {
-    const t = (tool: Tool, ic: string, label: string, title?: string): RItem => ({ tool, icon: ic, label, title, needsDoc: true });
-    const a = (ic: string, label: string, run: () => unknown, title?: string, needsDoc = true): RItem => ({ icon: ic, label, run, title, needsDoc });
-    return [
-      {
-        id: 'home', label: 'Home', groups: [
-          [a('open', 'Open', () => this.openDialog(), 'Open a PDF or image (Ctrl+O)', false), a('file', 'New', () => this.newDocument(), 'New blank document', false),
-            a('save', 'Save', () => this.save(), 'Save (Ctrl+S)'), a('saveas', 'Save as', () => this.save(true), 'Save a copy (Ctrl+Shift+S)'), a('print', 'Print', () => this.print(), 'Print (Ctrl+P)')],
-          [a('undo', 'Undo', () => this.session?.undo(), 'Undo (Ctrl+Z)'), a('redo', 'Redo', () => this.session?.redo(), 'Redo (Ctrl+Y)')],
-          [t('hand', 'hand', 'Hand', 'Drag to move around (H)'), t('select', 'cursor', 'Select', 'Select text and objects (V)')],
-          [a('fitWidth', 'Fit width', () => this.viewer.setFit('width')), a('fitPage', 'Fit page', () => this.viewer.setFit('page'), 'Fit whole page (Ctrl+0)')],
-          [a('continuous', 'Scroll', () => this.viewer.setLayout('continuous'), 'Continuous pages'), a('facing', 'Two pages', () => this.viewer.setLayout('facing')), a('single', 'One page', () => this.viewer.setLayout('single'))],
-          [a('sun', 'Normal', () => this.setReading('normal'), 'Normal page colours'), a('moon', 'Night', () => this.setReading('night'), 'Dark pages for reading at night'), a('book', 'Sepia', () => this.setReading('sepia'), 'Warm pages for long reading')],
-          [a('reflow', 'Reflow', () => this.reflow(), 'Read as plain text that fits the window'), a('speak', 'Read aloud', () => this.readAloud()), a('fullscreen', 'Full screen', () => this.fullscreen(), 'Full screen (F11)', false)],
+  // ---- Toolbars, laid out like Xodo: Read, Edit and Study modes, and one Actions menu ----
+
+  /** Every command, once. Toolbars and menus pick from this list. */
+  private defineCommands(): Record<string, Cmd> {
+    const tool = (t: Tool, ic: string, label: string, key?: string, title?: string, aka?: string[]): Cmd => ({
+      label, icon: ic, title, key, aka, needsDoc: true,
+      on: () => this.tools.tool === t,
+      run: () => this.tools.setTool(this.tools.tool === t && t !== 'select' ? 'select' : t),
+    });
+    const act = (ic: string, label: string, run: () => unknown, title?: string, needsDoc = true, extra: Partial<Cmd> = {}): Cmd => ({ icon: ic, label, run, title, needsDoc, ...extra });
+    const panel = (id: PanelId, ic: string, label: string, title: string, key?: string): Cmd => ({
+      icon: ic, label, title, key, needsDoc: false, on: () => this.panels.active === id, run: () => this.panels.toggle(id),
+    });
+    const C: Record<string, Cmd> = {
+      // Files
+      open: act('open', 'Open', () => this.openDialog(), 'Open a PDF, image or Office file', false, { key: 'open' }),
+      new: act('file', 'New', () => this.newDocument(), 'New blank document', false, { key: 'new' }),
+      save: act('save', 'Save', () => this.save(), undefined, true, { key: 'save' }),
+      saveAs: act('saveas', 'Save as', () => this.save(true), 'Save a copy', true, { key: 'save-as' }),
+      print: act('print', 'Print', () => this.print(), undefined, true, { key: 'print' }),
+      undo: act('undo', 'Undo', () => this.session?.undo(), undefined, true, { key: 'undo', off: () => !this.session?.canUndo }),
+      redo: act('redo', 'Redo', () => this.session?.redo(), undefined, true, { key: 'redo', off: () => !this.session?.canRedo }),
+      // Modes
+      editMode: act('edit', 'Edit', () => this.setMode(this.mode === 'edit' ? 'view' : 'edit'), 'Markup and drawing tools', true, { key: 'edit-mode', on: () => this.mode === 'edit' }),
+      studyMode: act('study', 'Study', () => this.setMode(this.mode === 'study' ? 'view' : 'study'), 'Dictionary, reading pictures, Markdown notes, equations', true, { on: () => this.mode === 'study' }),
+      closeMode: act('winClose', 'Close', () => this.setMode('view'), 'Back to reading (Escape)', false),
+      // Panels
+      pagesPanel: panel('thumbs', 'thumbs', 'Pages', 'Page thumbnails: click to jump, drag to reorder'),
+      outlinePanel: panel('outline', 'outline', 'Outline', 'Table of contents and bookmarks'),
+      commentsPanel: panel('comments', 'comments', 'Comments', 'Every comment and markup in the document'),
+      searchPanel: panel('search', 'search', 'Search', 'Find words in the document', 'find'),
+      // Edit tools, in Xodo's order
+      pan: tool('hand', 'hand', 'Pan', 'pan', 'Drag the page to move around'),
+      select: tool('select', 'cursor', 'Select', undefined, 'Select text and objects (Escape)'),
+      sticky: tool('note', 'sticky', 'Sticky', 'sticky', 'Sticky note comment', ['Note']),
+      highlight: tool('highlight', 'highlight', 'Highlight', 'highlight'),
+      underline: tool('underline', 'underline', 'Underline', 'underline'),
+      strikeout: tool('strikeout', 'strike', 'Strikeout', 'strikeout'),
+      squiggly: tool('squiggly', 'squiggly', 'Squiggly', 'squiggly'),
+      stamper: act('stamper', 'Stamper', () => this.insertImage(), 'Place an image from a file', true, { key: 'stamper', aka: ['Image file'] }),
+      rubberStamp: act('rubberStamp', 'Rubber stamp', () => this.chooseStamp(), 'Approved, Draft, Confidential and your own', true, { aka: ['Stamp'], on: () => this.tools.tool === 'stamp' }),
+      signature: act('signature', 'Signature', () => this.chooseSignature(), 'Draw, type or upload a signature', true, { key: 'signature', aka: ['Sign'], on: () => this.tools.tool === 'signature' }),
+      ink: tool('pen', 'pen', 'Ink', 'ink', 'Draw freehand', ['Pen']),
+      eraser: tool('eraser', 'eraser', 'Eraser', 'eraser', 'Removes ink and marker strokes'),
+      marker: tool('marker', 'marker', 'Marker', 'marker'),
+      textBox: tool('text', 'text', 'Text box', 'textbox'),
+      callout: tool('callout', 'callout', 'Callout'),
+      square: tool('rect', 'rect', 'Square', 'square', undefined, ['Rectangle']),
+      oval: tool('ellipse', 'ellipse', 'Oval', 'oval', undefined, ['Ellipse']),
+      line: tool('line', 'line', 'Line', 'line', 'Hold Shift for straight angles'),
+      arrow: tool('arrow', 'arrow', 'Arrow', 'arrow'),
+      multiselect: tool('multiselect', 'multiselect', 'Multi-select', 'multiselect', 'Drag a box around objects to select them all'),
+      lasso: tool('lasso', 'lasso', 'Lasso', 'lasso', 'Draw around objects to select them'),
+      editText: tool('edit-text', 'editText', 'Edit text', undefined, 'Click a line of text on the page to change it'),
+      // Inside Edit's drop-downs
+      distance: tool('distance', 'ruler', 'Distance'),
+      perimeter: tool('perimeter', 'perimeter', 'Perimeter', undefined, 'Click points, double-click to finish'),
+      area: tool('area', 'area', 'Area', undefined, 'Click points, double-click to finish'),
+      scale: act('scale', 'Scale', () => this.setMeasureScale(), 'Set the real-world scale'),
+      polygon: tool('polygon', 'polygon', 'Polygon', undefined, 'Click points, double-click to finish'),
+      polyline: tool('polyline', 'polyline', 'Polyline', undefined, 'Click points, double-click to finish'),
+      cloud: tool('cloud', 'cloud', 'Cloud', undefined, 'Click points, double-click to finish'),
+      markRedact: tool('redact', 'redact', 'Mark redaction', undefined, 'Drag over what should be removed'),
+      findRedact: act('searchRedact', 'Find & redact', () => this.panels.show('search'), 'Search, then mark all results'),
+      applyRedact: act('check', 'Apply redactions', () => this.applyRedactionsCmd(), 'Permanently remove everything marked'),
+      whiteout: tool('whiteout', 'whiteout', 'White-out', undefined, 'Cover part of the page'),
+      link: tool('link', 'link', 'Link', undefined, 'Drag a box, then enter a web address'),
+      attach: act('attach', 'Attach file', () => this.attachFileCmd(), 'Pin a file to a spot on the page'),
+      voice: act('mic', 'Voice note', () => this.voiceNoteCmd(), 'Record a short voice note and pin it to the page'),
+      fieldText: tool('field-text', 'field', 'Text field'),
+      fieldCheck: tool('field-check', 'checkbox', 'Checkbox'),
+      fieldRadio: tool('field-radio', 'radio', 'Radio'),
+      fieldDropdown: tool('field-dropdown', 'dropdown', 'Dropdown'),
+      fieldList: tool('field-list', 'list', 'List'),
+      fieldSign: tool('field-signature', 'signature', 'Signature field'),
+      detectFields: act('search', 'Detect fields', () => this.detectFieldsCmd(), 'Find blank lines and boxes and turn them into fields'),
+      flattenForms: act('flatten', 'Flatten forms', () => this.flatten(false, true), 'Make form values part of the page'),
+      // Study tools
+      lookup: act('book', 'Word lookup', () => this.study.toggleLookup(), 'When on, double-click or select a word to see its meaning, sound and Arabic', false, { key: 'lookup-toggle', on: () => this.study.lookupOn }),
+      readPicture: tool('read-picture', 'ocr', 'Read picture', 'read-picture', 'Drag over an image or scan, then click any word in it'),
+      markdown: tool('markdown', 'markdown', 'Markdown note', 'markdown', 'Click on the page and type Markdown. It formats when you click away'),
+      equation: act('sigma', 'Equation', () => this.study.insertEquation(), 'Write an equation in LaTeX, with a live preview', true, { key: 'equation' }),
+      pasteImage: act('paste', 'Paste image', () => this.pasteFromClipboard(), 'Paste a copied picture (Ctrl+V)', false),
+      themeSnip: tool('snip', 'snip', 'Theme snip', undefined, 'Drag over any area of a page to turn it light or dark'),
+      pageTheme: act('pageTheme', 'Page theme', () => this.convertPagesDialog(), 'Turn whole pages light or dark'),
+      allImages: act('contrast', 'All images', () => this.convertAllDialog(), 'Convert every image in this document'),
+      noteThemes: act('palette', 'Note themes', () => this.study.themesDialog(), 'Fonts, colours and spacing for Markdown notes', false),
+      prefs: act('settings', 'Preferences', () => this.settingsDialog(), 'One-click preference sets, and every other setting', false),
+      // Pages
+      rotL: act('rotL', 'Rotate left', () => this.rotatePages(-90)),
+      rotR: act('rotR', 'Rotate right', () => this.rotatePages(90)),
+      delPages: act('trash', 'Delete', () => this.deletePages(), 'Delete the chosen pages'),
+      dupPages: act('copy', 'Duplicate', () => this.duplicatePages(), 'Duplicate the chosen pages'),
+      blank: act('plus', 'Blank page', () => this.insertBlank()),
+      fromFile: act('insertFile', 'From file', () => this.insertFromFile(), 'Insert pages from a PDF or image after this page'),
+      merge: act('merge', 'Merge', () => this.mergeFiles(), 'Add other PDFs to the end', false),
+      extract: act('extract', 'Extract', () => this.extractPages(), 'Save some pages as a new file'),
+      split: act('split', 'Split', () => this.splitDialog(), 'Break into several files'),
+      crop: tool('crop', 'crop', 'Crop', undefined, 'Drag a box to crop to'),
+      numbers: act('numbers', 'Page numbers', () => this.pageNumbersDialog()),
+      headerFooter: act('header', 'Header & footer', () => this.headerFooterDialog()),
+      watermark: act('watermark', 'Watermark', () => this.watermarkDialog()),
+      bates: act('bates', 'Bates numbers', () => this.batesDialog()),
+      // Convert
+      toImages: act('toImage', 'To images', () => this.exportImagesDialog()),
+      toText: act('toText', 'To text', () => this.exportAs('txt')),
+      toHtml: act('toHtml', 'To HTML', () => this.exportAs('html')),
+      toWord: act('word', 'To Word', () => this.exportAs('docx')),
+      toExcel: act('excel', 'To Excel', () => this.exportAs('xlsx')),
+      toPpt: act('ppt', 'To PowerPoint', () => this.exportAs('pptx')),
+      wordEditor: act('word', 'Word editor', () => this.wordEditorCmd(), 'Open and change a Word file, or start a new one', false),
+      imagesToPdf: act('imagesToPdf', 'Images to PDF', () => this.imagesToPdf(), undefined, false),
+      officeToPdf: act('file', 'Office to PDF', () => this.officeToPdf(), 'Word, Excel or PowerPoint to PDF', false),
+      webToPdf: act('link', 'Web to PDF', () => this.webToPdf(), 'Turn a web page into a PDF', false),
+      scan: act('camera', 'Scan', () => this.scanCmd(), 'Take pictures with the camera', false),
+      convertImage: act('image', 'Convert image', () => this.convertImageCmd(), 'HEIC or DICOM to JPG or PNG', false),
+      ocr: act('ocr', 'OCR', () => this.ocrDialog(), 'Make scanned pages searchable'),
+      // Protect
+      addPassword: act('lock', 'Add password', () => this.passwordDialog()),
+      removePassword: act('unlock', 'Remove password', () => this.removePassword()),
+      certSign: act('signature', 'Digital signature', () => this.certSignDialog(), 'Sign with a digital ID, which proves the file has not changed'),
+      createId: act('plus', 'Create digital ID', () => this.createIdDialog(), 'Make your own digital ID', false),
+      cleanMeta: act('broom', 'Clean metadata', () => this.cleanMetadata(), 'Remove author, dates and other hidden information'),
+      properties: act('info', 'Properties', () => this.propertiesDialog()),
+      check: act('check', 'Check file', () => this.checkDocument(), 'PDF/A and accessibility check'),
+      pdfa: act('file', 'Save as PDF/A', () => this.savePdfA(), 'Archive format'),
+      // Tools
+      compress: act('compress', 'Compress', () => this.compressDialog()),
+      flatten: act('flatten', 'Flatten', () => this.flatten(true, true), 'Make all annotations part of the page'),
+      compare: act('compare', 'Compare', () => this.compareDialog(), 'Compare with another PDF'),
+      textCompare: act('toText', 'Text compare', () => this.textCompareDialog(), 'Compare two pieces of text', false),
+      batch: act('batch', 'Batch', () => this.batchDialog(), 'Do the same job on many PDFs', false),
+      exportNotes: act('xfdfOut', 'Export notes', () => this.exportXfdfCmd(), 'Save annotations to an XFDF file'),
+      importNotes: act('xfdfIn', 'Import notes', () => this.importXfdfCmd(), 'Load annotations from an XFDF file'),
+      // View
+      fitWidth: act('fitWidth', 'Fit width', () => this.viewer.setFit('width')),
+      fitPage: act('fitPage', 'Fit page', () => this.viewer.setFit('page'), 'Fit whole page', true, { key: 'fit-page' }),
+      zoomIn: act('zoomIn', 'Zoom in', () => this.zoomBy(1.18), undefined, true, { key: 'zoom-in' }),
+      zoomOut: act('zoomOut', 'Zoom out', () => this.zoomBy(0.85), undefined, true, { key: 'zoom-out' }),
+      scroll: act('continuous', 'Scroll', () => this.viewer.setLayout('continuous'), 'Continuous pages', true, { on: () => this.viewer.layout === 'continuous' }),
+      onePage: act('single', 'One page', () => this.viewer.setLayout('single'), undefined, true, { on: () => this.viewer.layout === 'single' }),
+      twoPages: act('facing', 'Two pages', () => this.viewer.setLayout('facing'), undefined, true, { on: () => this.viewer.layout === 'facing' }),
+      normal: act('sun', 'Normal', () => this.setReading('normal'), 'Normal page colours', true, { on: () => this.reading === 'normal' }),
+      night: act('moon', 'Night', () => this.setReading('night'), 'Dark pages for reading at night', true, { on: () => this.reading === 'night' }),
+      sepia: act('book', 'Sepia', () => this.setReading('sepia'), 'Warm pages for long reading', true, { on: () => this.reading === 'sepia' }),
+      reflow: act('reflow', 'Reflow', () => this.reflow(), 'Read as plain text that fits the window'),
+      readAloud: act('speak', 'Read aloud', () => this.readAloud(), undefined, true, { key: 'speech' }),
+      fullscreen: act('fullscreen', 'Full screen', () => this.fullscreen(), undefined, false, { key: 'fullscreen' }),
+      // More
+      shortcuts: act('keyboard', 'Keyboard shortcuts', () => this.showHelp(), 'Xodo’s keys, and your own', false, { key: 'help' }),
+      about: act('info', 'About and memory', () => this.aboutDialog(), 'Version, and how much memory PDFy is using', false),
+    };
+    C.actions = {
+      icon: 'actions', label: 'Actions', title: 'Every document tool in one place, with search', key: 'actions', needsDoc: false,
+      menu: () => ({
+        search: true, wide: true, sections: [
+          { name: 'Pages', items: [C.rotL, C.rotR, C.delPages, C.dupPages, C.blank, C.fromFile, C.merge, C.extract, C.split, C.crop, C.numbers, C.headerFooter, C.watermark, C.bates] },
+          { name: 'Convert', items: [C.toImages, C.toText, C.toHtml, C.toWord, C.toExcel, C.toPpt, C.wordEditor, C.imagesToPdf, C.officeToPdf, C.webToPdf, C.scan, C.convertImage, C.ocr] },
+          { name: 'Protect and sign', items: [C.addPassword, C.removePassword, C.certSign, C.createId, C.findRedact, C.applyRedact, C.cleanMeta, C.properties, C.check, C.pdfa] },
+          { name: 'Forms', items: [C.fieldText, C.fieldCheck, C.fieldRadio, C.fieldDropdown, C.fieldList, C.fieldSign, C.detectFields, C.flattenForms] },
+          { name: 'Tools', items: [C.compress, C.flatten, C.compare, C.textCompare, C.batch, C.exportNotes, C.importNotes, C.pageTheme, C.allImages] },
         ],
-      },
-      {
-        id: 'study', label: 'Study', groups: [
-          [a('book', 'Word lookup', () => this.study.toggleLookup(), 'Turn word lookup on or off. When on, double-click or select a word to see its meaning, sound and Arabic', false), t('read-picture', 'ocr', 'Read picture', 'Drag over an image or scan, then click any word in it to look it up')],
-          [t('markdown', 'text', 'Markdown note', 'Click on the page and type Markdown. It turns into formatted notes when you click away (Ctrl+Shift+M)'), a('sigma', 'Equation', () => this.study.insertEquation(), 'Write an equation in LaTeX, with a live preview (Ctrl+Shift+E)')],
-          [a('palette', 'Note themes', () => this.study.themesDialog(), 'Fonts, colours and spacing for Markdown notes', false), a('settings', 'Preferences', () => this.settingsDialog(), 'One-click preference sets, and every other setting', false)],
+      }),
+    };
+    C.viewMenu = {
+      icon: 'view', label: 'View', title: 'Page layout, zoom, page colours, reading and theme', needsDoc: false,
+      menu: () => ({
+        wide: true, sections: [
+          { name: 'Layout', items: [C.scroll, C.onePage, C.twoPages] },
+          { name: 'Zoom', items: [C.fitWidth, C.fitPage, C.zoomIn, C.zoomOut] },
+          { name: 'Page colours', items: [C.normal, C.night, C.sepia] },
+          { name: 'Reading', items: [C.reflow, C.readAloud, C.fullscreen] },
+          { name: 'Interface theme', items: UI_THEMES.map(t => ({ icon: t.dark ? 'moon' : 'sun', label: t.name, title: `${t.name} interface theme`, run: () => { applyUiTheme(t.id); this.syncRibbon(); }, on: () => currentUiTheme() === t.id })) },
         ],
-      },
-      {
-        id: 'comment', label: 'Comment', groups: [
-          [t('highlight', 'highlight', 'Highlight'), t('underline', 'underline', 'Underline'), t('strikeout', 'strike', 'Strikeout'), t('squiggly', 'squiggly', 'Squiggly')],
-          [t('pen', 'pen', 'Pen'), t('marker', 'marker', 'Marker'), t('eraser', 'eraser', 'Eraser', 'Removes pen and marker strokes')],
-          [t('text', 'text', 'Text box'), t('callout', 'callout', 'Callout'), t('note', 'note', 'Note')],
-          [a('stamp', 'Stamp', () => this.chooseStamp()), a('signature', 'Sign', () => this.chooseSignature(), 'Draw, type or upload a signature')],
-          [a('attach', 'Attach file', () => this.attachFileCmd(), 'Pin a file to a spot on the page'), a('speak', 'Voice note', () => this.voiceNoteCmd(), 'Record a short voice note and pin it to the page')],
-        ],
-      },
-      {
-        id: 'shapes', label: 'Shapes', groups: [
-          [t('rect', 'rect', 'Rectangle'), t('ellipse', 'ellipse', 'Ellipse'), t('line', 'line', 'Line', 'Hold Shift for straight angles'), t('arrow', 'arrow', 'Arrow')],
-          [t('polygon', 'polygon', 'Polygon', 'Click points, double-click to finish'), t('polyline', 'polyline', 'Polyline', 'Click points, double-click to finish'), t('cloud', 'cloud', 'Cloud', 'Click points, double-click to finish')],
-          [t('distance', 'ruler', 'Distance'), t('perimeter', 'perimeter', 'Perimeter', 'Click points, double-click to finish'), t('area', 'area', 'Area', 'Click points, double-click to finish'), a('scale', 'Scale', () => this.setMeasureScale(), 'Set the real-world scale')],
-        ],
-      },
-      {
-        id: 'insert', label: 'Insert', groups: [
-          [a('paste', 'Paste image', () => this.pasteFromClipboard(), 'Paste a copied image (Ctrl+V)', false), a('image', 'Image file', () => this.insertImage()),
-            t('snip', 'snip', 'Theme snip', 'Drag over any area of a page to convert its theme'), a('pageTheme', 'Page theme', () => this.convertPagesDialog(), 'Convert whole pages to light or dark'),
-            a('contrast', 'All images', () => this.convertAllDialog(), 'Convert every image in this document')],
-          [t('markdown', 'text', 'Markdown note', 'Click on the page and type Markdown'), a('sigma', 'Equation', () => this.study.insertEquation(), 'Write an equation in LaTeX'), t('link', 'link', 'Link', 'Drag a box, then enter a web address')],
-          [a('watermark', 'Watermark', () => this.watermarkDialog()), a('header', 'Header & footer', () => this.headerFooterDialog()), a('numbers', 'Page numbers', () => this.pageNumbersDialog()), a('bates', 'Bates numbers', () => this.batesDialog())],
-        ],
-      },
-      {
-        id: 'edit', label: 'Edit', groups: [
-          [t('edit-text', 'editText', 'Edit text', 'Click a line of text on the page to change it'), t('whiteout', 'whiteout', 'White-out', 'Cover part of the page')],
-          [t('redact', 'redact', 'Mark redaction', 'Drag over what should be removed'), a('searchRedact', 'Find & redact', () => this.panels.show('search'), 'Search, then mark all results'), a('check', 'Apply redactions', () => this.applyRedactionsCmd(), 'Permanently remove everything marked')],
-        ],
-      },
-      {
-        id: 'pages', label: 'Pages', groups: [
-          [a('rotL', 'Rotate left', () => this.rotatePages(-90)), a('rotR', 'Rotate right', () => this.rotatePages(90)), a('trash', 'Delete', () => this.deletePages()), a('copy', 'Duplicate', () => this.duplicatePages())],
-          [a('plus', 'Blank page', () => this.insertBlank()), a('insertFile', 'From file', () => this.insertFromFile(), 'Insert pages from a PDF or image after this page'), a('merge', 'Merge', () => this.mergeFiles(), 'Add other PDFs to the end', false)],
-          [a('extract', 'Extract', () => this.extractPages(), 'Save some pages as a new file'), a('split', 'Split', () => this.splitDialog(), 'Break into several files'), t('crop', 'crop', 'Crop', 'Drag a box to crop to')],
-        ],
-      },
-      {
-        id: 'forms', label: 'Forms', groups: [
-          [t('field-text', 'field', 'Text field'), t('field-check', 'checkbox', 'Checkbox'), t('field-radio', 'radio', 'Radio'), t('field-dropdown', 'dropdown', 'Dropdown'), t('field-list', 'list', 'List'), t('field-signature', 'signature', 'Signature field')],
-          [a('search', 'Detect fields', () => this.detectFieldsCmd(), 'Find blank lines and boxes and turn them into fields'), a('flatten', 'Flatten forms', () => this.flatten(false, true), 'Make form values part of the page')],
-        ],
-      },
-      {
-        id: 'protect', label: 'Protect', groups: [
-          [a('lock', 'Add password', () => this.passwordDialog()), a('unlock', 'Remove password', () => this.removePassword())],
-          [a('signature', 'Digital signature', () => this.certSignDialog(), 'Sign with a digital ID, which proves the file has not changed'), a('plus', 'Create digital ID', () => this.createIdDialog(), 'Make your own digital ID', false)],
-          [a('broom', 'Clean metadata', () => this.cleanMetadata(), 'Remove author, dates and other hidden information'), a('info', 'Properties', () => this.propertiesDialog())],
-          [a('check', 'Check file', () => this.checkDocument(), 'PDF/A and accessibility check'), a('file', 'Save as PDF/A', () => this.savePdfA(), 'Archive format')],
-        ],
-      },
-      {
-        id: 'convert', label: 'Convert', groups: [
-          [a('toImage', 'To images', () => this.exportImagesDialog()), a('toText', 'To text', () => this.exportAs('txt')), a('toHtml', 'To HTML', () => this.exportAs('html')), a('word', 'To Word', () => this.exportAs('docx')), a('excel', 'To Excel', () => this.exportAs('xlsx')), a('ppt', 'To PowerPoint', () => this.exportAs('pptx'))],
-          [a('word', 'Word editor', () => this.wordEditorCmd(), 'Open and change a Word file, or start a new one', false)],
-          [a('imagesToPdf', 'Images to PDF', () => this.imagesToPdf(), undefined, false), a('file', 'Office to PDF', () => this.officeToPdf(), 'Word, Excel or PowerPoint to PDF', false), a('link', 'Web to PDF', () => this.webToPdf(), 'Turn a web page into a PDF', false), a('camera', 'Scan', () => this.scanCmd(), 'Take pictures with the camera', false), a('image', 'Convert image', () => this.convertImageCmd(), 'HEIC or DICOM to JPG or PNG', false), a('ocr', 'OCR', () => this.ocrDialog(), 'Make scanned pages searchable')],
-          [a('compress', 'Compress', () => this.compressDialog()), a('flatten', 'Flatten', () => this.flatten(true, true), 'Make all annotations part of the page')],
-          [a('compare', 'Compare', () => this.compareDialog(), 'Compare with another PDF'), a('toText', 'Text compare', () => this.textCompareDialog(), 'Compare two pieces of text', false), a('batch', 'Batch', () => this.batchDialog(), 'Do the same job on many PDFs', false)],
-          [a('xfdfOut', 'Export notes', () => this.exportXfdfCmd(), 'Save annotations to an XFDF file'), a('xfdfIn', 'Import notes', () => this.importXfdfCmd(), 'Load annotations from an XFDF file')],
-        ],
-      },
-    ];
+      }),
+    };
+    C.moreMenu = {
+      icon: 'more', label: 'More', title: 'Preferences, shortcuts and more', needsDoc: false,
+      menu: () => ({ sections: [{ name: 'PDFy', items: [C.new, C.prefs, C.noteThemes, C.shortcuts, C.about] }] }),
+    };
+    C.measureMenu = { icon: 'measure', label: 'Measure', title: 'Distance, perimeter and area', needsDoc: true, on: () => ['distance', 'perimeter', 'area'].includes(this.tools.tool), menu: () => ({ sections: [{ name: 'Measure', items: [C.distance, C.perimeter, C.area, C.scale] }] }) };
+    C.shapesMenu = { icon: 'shapes', label: 'Shapes', title: 'Polygon, polyline and cloud', needsDoc: true, aka: ['Shape to...'], on: () => ['polygon', 'polyline', 'cloud'].includes(this.tools.tool), menu: () => ({ sections: [{ name: 'Shapes', items: [C.polygon, C.polyline, C.cloud] }] }) };
+    C.redactMenu = { icon: 'redact', label: 'Redaction', title: 'Remove text and pictures for good', needsDoc: true, on: () => ['redact', 'whiteout'].includes(this.tools.tool), menu: () => ({ sections: [{ name: 'Redaction', items: [C.markRedact, C.findRedact, C.applyRedact, C.whiteout] }] }) };
+    C.insertMenu = { icon: 'plus', label: 'Insert', title: 'Links, files and voice notes', needsDoc: true, menu: () => ({ sections: [{ name: 'Insert', items: [C.link, C.attach, C.voice, C.pasteImage, C.stamper] }] }) };
+    C.formsMenu = { icon: 'forms', label: 'Forms', title: 'Form fields', needsDoc: true, on: () => this.tools.tool.startsWith('field-'), menu: () => ({ sections: [{ name: 'Form fields', items: [C.fieldText, C.fieldCheck, C.fieldRadio, C.fieldDropdown, C.fieldList, C.fieldSign, C.detectFields, C.flattenForms] }] }) };
+    return C;
   }
 
-  private drawTabsRibbon() {
-    clear(this.ribbonTabs);
-    for (const tab of this.tabs) {
-      this.ribbonTabs.append(h('button', {
-        class: `ribbon-tab${tab.id === this.activeTab ? ' active' : ''}`, role: 'tab', 'aria-selected': String(tab.id === this.activeTab),
-        onclick: () => { this.activeTab = tab.id; this.drawTabsRibbon(); },
-      }, tab.label));
+  mode: 'view' | 'edit' | 'study' = 'view';
+
+  /** The toolbar for each mode. Edit follows Xodo's annotation bar, tool for tool. */
+  private layoutFor(mode: 'view' | 'edit' | 'study'): { left: (Cmd | '|')[]; right: (Cmd | '|')[] } {
+    const C = this.cmd;
+    if (mode === 'edit') {
+      return {
+        left: [C.closeMode, '|', C.sticky, C.highlight, C.underline, C.strikeout, C.squiggly, '|', C.stamper, C.rubberStamp, C.signature, '|', C.ink, C.eraser, C.marker, C.textBox, C.callout, '|',
+          C.square, C.oval, C.line, C.arrow, C.measureMenu, C.shapesMenu, '|', C.multiselect, C.lasso, C.redactMenu, C.insertMenu, C.formsMenu, C.editText, C.pan],
+        right: [C.undo, C.redo],
+      };
     }
-    clear(this.ribbonEl);
-    this.buttons.clear();
-    const tab = this.tabs.find(x => x.id === this.activeTab)!;
-    for (const group of tab.groups) {
-      const g = h('div', { class: 'r-group' });
-      for (const item of group) {
-        const b = h('button', {
-          class: 'r-btn', title: item.title ?? item.label,
-          onclick: safe(() => {
-            if (item.tool) this.tools.setTool(this.tools.tool === item.tool && item.tool !== 'select' ? 'select' : item.tool);
-            else return item.run?.();
-          }, item.label),
-        }, icon(item.icon, 19), h('span', null, item.label));
-        this.buttons.set(item, b);
-        g.append(b);
-      }
-      this.ribbonEl.append(g);
+    if (mode === 'study') {
+      return {
+        left: [C.closeMode, '|', C.lookup, C.readPicture, C.markdown, C.equation, '|', C.pasteImage, C.themeSnip, C.pageTheme, C.allImages, '|', C.noteThemes, C.prefs],
+        right: [C.undo, C.redo],
+      };
     }
+    return {
+      left: [C.open, C.save, C.saveAs, C.print, '|', C.actions],
+      right: [C.undo, C.redo, '|', C.editMode, C.studyMode, '|', C.pagesPanel, C.outlinePanel, C.commentsPanel, C.searchPanel, '|', C.viewMenu, C.moreMenu],
+    };
+  }
+
+  setMode(mode: 'view' | 'edit' | 'study') {
+    closeDropdown();
+    if (mode !== this.mode) {
+      this.tools.finishClickShape();
+      if (this.tools.tool !== 'select' && this.tools.tool !== 'hand') this.tools.setTool('select');
+    }
+    this.mode = mode;
+    document.documentElement.dataset.mode = mode;
+    const l = this.layoutFor(mode);
+    this.row.set(l.left, l.right);
     this.syncRibbon();
   }
 
-  private syncRibbon() {
-    const has = !!this.session;
-    for (const [item, b] of this.buttons) {
-      b.disabled = !!item.needsDoc && !has;
-      if (item.tool) {
-        const on = this.tools.tool === item.tool;
-        b.classList.toggle('active', on);
-        b.setAttribute('aria-pressed', String(on));
+  /**
+   * Finds a command by its name wherever it lives (toolbar, a drop-down, or More) and makes it
+   * visible, ready to click. Used by the tests, which click the real buttons.
+   */
+  async revealCommand(label: string): Promise<HTMLButtonElement | null> {
+    closeDropdown();
+    const startMode = this.mode;
+    const found = await this.findCommand(label);
+    if (!found && this.mode !== startMode) this.setMode(startMode);
+    return found;
+  }
+
+  private async findCommand(label: string): Promise<HTMLButtonElement | null> {
+    const same = (c: Cmd) => c.label === label || !!c.aka?.includes(label);
+    const visible = (root: ParentNode) => [...root.querySelectorAll<HTMLButtonElement>('.tb-btn, .dd-item')]
+      .find(b => !b.hidden && b.offsetParent !== null && (b.dataset.label === label || (b.dataset.aka ?? '').split('|').includes(label))) ?? null;
+    const tick = () => new Promise(r => setTimeout(r, 0));
+    for (const mode of [this.mode, 'view', 'edit', 'study'] as const) {
+      if (mode !== this.mode) this.setMode(mode);
+      await tick();
+      const direct = visible(this.row.el);
+      if (direct) return direct;
+      const row = this.row.commands();
+      const inRow = row.find(same);
+      if (inRow && this.row.isHidden(inRow)) { this.row.overflow().click(); await tick(); const b = visible(document.body); if (b) return b; closeDropdown(); }
+      for (const owner of row.filter(c => c.menu)) {
+        if (!owner.menu!().sections.some(s => s.items.some(same))) continue;
+        if (this.row.isHidden(owner)) {
+          // The menu's own button is under More: open More, then that menu.
+          this.row.overflow().click();
+          await tick();
+          [...document.querySelectorAll<HTMLButtonElement>('.dropdown .dd-item')].find(x => x.dataset.label === owner.label)?.click();
+        } else {
+          this.row.buttonFor(owner)?.click();
+        }
+        await tick();
+        const b = [...document.querySelectorAll<HTMLButtonElement>('.dropdown .dd-item')].find(x => x.dataset.label === label || (x.dataset.aka ?? '').split('|').includes(label));
+        if (b) return b;
+        closeDropdown();
       }
-      if (item.label === 'Undo') { b.disabled = !this.session?.canUndo; b.title = this.session?.undoLabel ? `Undo: ${this.session.undoLabel}` : 'Undo (Ctrl+Z)'; }
-      if (item.label === 'Redo') { b.disabled = !this.session?.canRedo; b.title = this.session?.redoLabel ? `Redo: ${this.session.redoLabel}` : 'Redo (Ctrl+Y)'; }
-      if (item.label === 'Word lookup') { b.classList.toggle('active', this.study.lookupOn); b.setAttribute('aria-pressed', String(this.study.lookupOn)); }
-      if (item.label === 'Normal') b.classList.toggle('active', this.reading === 'normal');
-      if (item.label === 'Night') b.classList.toggle('active', this.reading === 'night');
-      if (item.label === 'Sepia') b.classList.toggle('active', this.reading === 'sepia');
-      if (item.label === 'Scroll') b.classList.toggle('active', this.viewer.layout === 'continuous');
-      if (item.label === 'Two pages') b.classList.toggle('active', this.viewer.layout === 'facing');
-      if (item.label === 'One page') b.classList.toggle('active', this.viewer.layout === 'single');
     }
+    return null;
+  }
+
+  private syncRibbon() {
+    this.row?.sync();
     this.drawStyleBar();
   }
 
+  async aboutDialog() {
+    this.updateMemory();
+    await openDialog('About PDFy', h('div', { class: 'form' },
+      h('p', null, 'PDFy: a PDF editor with study tools.'),
+      h('p', { class: 'muted' }, this.memEl.textContent || 'Memory figures appear once a document is open.'),
+      h('p', { class: 'muted' }, 'Keyboard shortcuts follow Xodo 6.3.4. Offline dictionary from Wiktionary (CC BY-SA).')),
+    [{ label: 'Close', value: true, primary: true }], true);
+  }
+
   private drawStyleBar() {
+    this.drawStyleBarInner();
+    this.settleStyleBar();
+  }
+
+  private drawStyleBarInner() {
     const bar = this.styleBar;
     clear(bar);
     const sel = this.viewer.selectedAnnot();
     const tool = this.tools.tool;
+    // Reading with nothing chosen needs no style row, so it stays out of the way, as in Xodo.
+    bar.classList.toggle('quiet', this.mode === 'view' && !sel && !this.viewer.extra.size && (tool === 'select' || tool === 'hand'));
     const hints: Partial<Record<Tool, string>> = {
       select: 'Select text or click an object. Double-click to edit. Press Delete to remove.',
       hand: 'Drag the page to move around.',
@@ -523,6 +675,17 @@ export class App {
     if (v) bar.append(h('button', { class: 'btn small', onclick: safe(() => this.study.editEquation(v, a), 'Editing the equation') }, 'Edit equation'));
   }
 
+  /** Called after the style row is drawn: a row of tips only becomes the tip at the bottom. */
+  private settleStyleBar() {
+    const bar = this.styleBar;
+    const onlyTips = [...bar.children].every(c => c.classList.contains('style-hint'));
+    if (onlyTips) bar.classList.add('quiet');
+    // Just reading needs no tip. Tips are for when a tool is in hand.
+    const reading = this.mode === 'view' && ['select', 'hand'].includes(this.tools.tool);
+    this.hintEl.textContent = onlyTips && !reading ? bar.textContent ?? '' : '';
+    this.hintEl.hidden = !this.hintEl.textContent;
+  }
+
   private applyStyle(patch: Partial<Annot>) {
     const sel = this.viewer.selectedAnnot();
     if (sel && this.session) {
@@ -560,6 +723,7 @@ export class App {
     this.pageInput.disabled = !s;
     this.zoomInput.disabled = !s;
     document.title = s ? `${s.name}${s.dirty ? ' •' : ''} – PDFy` : 'PDFy';
+    this.titleText.textContent = s ? `${s.name}${s.dirty ? ' •' : ''}` : '';
     this.updateMemory();
   }
 
@@ -710,7 +874,7 @@ export class App {
     return session;
   }
 
-  setStatus(t: string) { this.statusMsg.textContent = t; }
+  setStatus(t: string) { this.statusMsg.textContent = t; this.statusMsg.hidden = !t; }
 
   newDocument(): Session {
     const s = new Session('Untitled.pdf');
@@ -848,13 +1012,14 @@ export class App {
 
   private pasteClip() {
     const session = this.session!;
-    const { annot } = this.clip!;
     const page = session.pages[this.viewer.current];
-    const r = annot.rect;
-    const copy = remapAnnot({ ...annot, id: uid(), ghost: undefined, importedFrom: undefined }, r, [r[0] + 14, r[1] - 14, r[2] + 14, r[3] - 14]);
-    session.addAnnots(page, [copy], 'Paste');
-    this.viewer.select(page.id, copy.id);
-    this.clip = { annot: copy, pageId: page.id };
+    const copies = this.clip!.annots.map(annot => {
+      const r = annot.rect;
+      return remapAnnot({ ...annot, id: uid(), ghost: undefined, importedFrom: undefined }, r, [r[0] + 14, r[1] - 14, r[2] + 14, r[3] - 14]);
+    });
+    session.addAnnots(page, copies, copies.length > 1 ? 'Paste objects' : 'Paste');
+    copies.forEach((c, i) => (i ? this.viewer.toggleSelect(page.id, c.id) : this.viewer.select(page.id, c.id)));
+    this.clip = { annots: copies, pageId: page.id };
     this.onSelection();
   }
 
@@ -886,7 +1051,7 @@ export class App {
       if (annot.kind === 'math' && v) items.push({ label: 'Edit equation', icon: 'sigma', run: safe(() => this.study.editEquation(v, annot), 'Editing the equation') });
       if (annot.kind !== 'image' && v) items.push({ label: annot.contents ? 'Edit comment' : 'Add comment', icon: 'comments', run: () => this.tools.openCommentEditor(v, annot) });
       items.push(
-        { label: 'Duplicate', icon: 'copy', key: 'Ctrl+D', run: () => { this.clip = { annot, pageId: page.id }; this.pasteClip(); } },
+        { label: 'Duplicate', icon: 'copy', key: 'Ctrl+D', run: () => { this.clip = { annots: [annot], pageId: page.id }; this.pasteClip(); } },
         { label: 'Bring to front', icon: 'layers', run: () => session.reorderAnnot(page, annot, true), disabled: annot.ghost },
         { label: 'Send to back', icon: 'layers', run: () => session.reorderAnnot(page, annot, false), disabled: annot.ghost },
         null,
@@ -934,21 +1099,8 @@ export class App {
   }
 
   async showHelp() {
-    const row = (keys: string, what: string) => h('tr', null, h('td', null, ...keys.split(' + ').flatMap((k, i) => [i ? ' + ' : '', h('kbd', null, k)])), h('td', null, what));
-    await openDialog('Shortcuts', h('table', { class: 'help-table' },
-      row('Ctrl + V', 'Paste an image, words or a copied object'),
-      row('Ctrl + O', 'Open'), row('Ctrl + N', 'New document'), row('Ctrl + W', 'Close document'), row('Ctrl + Tab', 'Next document'), row('Ctrl + S', 'Save'), row('Ctrl + Shift + S', 'Save as'), row('Ctrl + P', 'Print'),
-      row('Ctrl + Z', 'Undo'), row('Ctrl + Y', 'Redo'),
-      row('Ctrl + F', 'Search'), row('F3', 'Next search result'),
-      row('Ctrl + L', 'Look up the selected word'), row('Ctrl + Shift + M', 'New Markdown note'), row('Ctrl + Shift + E', 'New equation'),
-      row('Ctrl + Wheel', 'Zoom'), row('Ctrl + 0', 'Fit the whole page'),
-      row('V', 'Select'), row('H', 'Hand'), row('Space', 'Hold to drag the page'),
-      row('Home', 'First page'), row('End', 'Last page'),
-      row('Ctrl + Click', 'Select several objects'), row('Shift + Drag', 'Select everything in a box'),
-      row('Ctrl + D', 'Duplicate the selected object'), row('Delete', 'Delete the selected object'),
-      row('Arrow keys', 'Move the selected object. Hold Shift for bigger steps'),
-      row('Escape', 'Stop the current tool'), row('F1', 'This list')),
-    [{ label: 'Close', value: true, primary: true }], true);
+    await shortcutsDialog();
+    this.syncRibbon();
   }
 
   // ---- Keyboard ----
@@ -960,25 +1112,21 @@ export class App {
     const k = e.key.toLowerCase();
     if (document.querySelector('.overlay-bg')) return;
 
-    if (ctrl && k === 'o') { e.preventDefault(); void this.openDialog().catch(err => reportError('Opening', err)); return; }
-    if (ctrl && k === 's') { e.preventDefault(); if (this.session) void this.save(e.shiftKey).catch(err => reportError('Saving', err)); return; }
-    if (ctrl && k === 'p') { e.preventDefault(); if (this.session) void this.print().catch(err => reportError('Printing', err)); return; }
-    if (ctrl && k === 'f') { e.preventDefault(); if (this.session) this.panels.show('search'); return; }
-    if (ctrl && k === 'n') { e.preventDefault(); this.newDocument(); return; }
-    if (ctrl && k === 'w') { e.preventDefault(); if (this.session) void this.closeSession(this.session).catch(err => reportError('Closing', err)); return; }
-    if (ctrl && e.key === 'Tab' && this.sessions.length > 1) {
-      e.preventDefault();
-      const i = this.sessions.indexOf(this.session!);
-      this.activate(this.sessions[(i + (e.shiftKey ? -1 : 1) + this.sessions.length) % this.sessions.length]);
+    // Ctrl+1 to 9 jumps to that document, as in Xodo.
+    if (ctrl && !e.shiftKey && !e.altKey && /^(Digit|Numpad)[1-9]$/.test(e.code)) {
+      const s = this.sessions[+e.code.slice(-1) - 1];
+      if (s) { e.preventDefault(); this.activate(s); }
       return;
     }
-    if (ctrl && k === 'l') { e.preventDefault(); this.study.lookupSelection(); return; }
-    if (ctrl && e.shiftKey && k === 'm' && this.session) { e.preventDefault(); this.tools.setTool('markdown'); return; }
-    if (ctrl && e.shiftKey && k === 'e' && this.session) { e.preventDefault(); void this.study.insertEquation().catch(err => reportError('The equation', err)); return; }
-    if (e.key === 'F1') { e.preventDefault(); void this.showHelp(); return; }
-    if (e.key === 'F3') { e.preventDefault(); this.panels.search.step(e.shiftKey ? -1 : 1); return; }
+    const sc = match(e);
+    const printable = !ctrl && !e.altKey && !/^F\d{1,2}$/.test(e.code) && !['Escape', 'Tab'].includes(e.key);
+    if (sc && (!typing || (sc.global && !printable))) {
+      e.preventDefault();
+      safe(() => this.runShortcut(sc.id), sc.label)();
+      return;
+    }
     if (typing) return;
-    if (ctrl && k === 'a' && this.session) {
+    if (ctrl && e.code === 'KeyA' && this.session) {
       // Select the words on the current page, not the whole window.
       e.preventDefault();
       const host = this.viewer.views.get(this.session.pages[this.viewer.current]?.id)?.textHost;
@@ -997,33 +1145,23 @@ export class App {
       document.addEventListener('keyup', up);
       return;
     }
-    if (e.key === 'Home' && this.session) { e.preventDefault(); this.viewer.goTo(0); return; }
-    if (e.key === 'End' && this.session) { e.preventDefault(); this.viewer.goTo(this.session.pages.length - 1); return; }
-    if (ctrl && k === 'z') { e.preventDefault(); if (e.shiftKey) this.session?.redo(); else this.session?.undo(); return; }
-    if (ctrl && k === 'y') { e.preventDefault(); this.session?.redo(); return; }
-    if (ctrl && k === '0') { e.preventDefault(); this.viewer.setFit('page'); return; }
-    if (ctrl && (k === '=' || k === '+')) { e.preventDefault(); this.zoomBy(1.18); return; }
-    if (ctrl && k === '-') { e.preventDefault(); this.zoomBy(0.85); return; }
-    if (ctrl && k === 'c') {
-      const sel = this.viewer.selectedAnnot();
-      if (sel && !window.getSelection()?.toString()) { this.clip = { annot: sel.annot, pageId: sel.page.id }; e.preventDefault(); }
-      return;
-    }
-    if (ctrl && k === 'd') {
-      const sel = this.viewer.selectedAnnot();
-      if (sel && this.session) {
-        e.preventDefault();
-        this.clip = { annot: sel.annot, pageId: sel.page.id };
-        this.pasteClip();
-      }
+    if (ctrl && e.code === 'KeyC') {
+      const chosen = this.viewer.selectedAnnots();
+      if (chosen && !window.getSelection()?.toString()) { this.clip = { annots: [...chosen.annots], pageId: chosen.page.id }; e.preventDefault(); }
       return;
     }
     if (ctrl) return;
-    if (e.key === 'F11') { e.preventDefault(); void this.fullscreen(); return; }
     if (e.key === 'Escape') {
       this.tools.cancel();
       if (this.tools.tool !== 'select') this.tools.setTool('select');
       else if (this.viewer.selection) { this.viewer.select(null); this.onSelection(); }
+      else if (this.mode !== 'view') this.setMode('view');
+      return;
+    }
+    // Left and right step through search results while the search panel is open, as in Xodo.
+    if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && this.panels.active === 'search' && !this.viewer.selection) {
+      e.preventDefault();
+      this.panels.search.step(e.key === 'ArrowRight' ? 1 : -1);
       return;
     }
     if (e.key === 'Enter' && this.tools.finishClickShape()) return;
@@ -1047,10 +1185,83 @@ export class App {
       return;
     }
     if (!this.session) return;
-    if (k === 'h') this.tools.setTool('hand');
-    else if (k === 'v') this.tools.setTool('select');
-    else if (e.key === 'PageDown' && this.viewer.layout === 'single') { e.preventDefault(); this.viewer.goTo(this.viewer.current + 1); }
+    if (e.key === 'PageDown' && this.viewer.layout === 'single') { e.preventDefault(); this.viewer.goTo(this.viewer.current + 1); }
     else if (e.key === 'PageUp' && this.viewer.layout === 'single') { e.preventDefault(); this.viewer.goTo(this.viewer.current - 1); }
+  }
+
+  /** What each shortcut does. The keys themselves live in the shortcuts list. */
+  runShortcut(id: string) {
+    const s = this.session;
+    const toolIn = (mode: 'edit' | 'study', t: Tool) => {
+      if (!s) return;
+      if (this.mode !== mode) this.setMode(mode);
+      this.tools.setTool(this.tools.tool === t ? 'select' : t);
+    };
+    switch (id) {
+      case 'next-tab': case 'prev-tab':
+        if (this.sessions.length > 1) {
+          const i = this.sessions.indexOf(this.session!);
+          this.activate(this.sessions[(i + (id === 'prev-tab' ? -1 : 1) + this.sessions.length) % this.sessions.length]);
+        }
+        return;
+      case 'first-page': if (s) this.viewer.goTo(0); return;
+      case 'last-page': if (s) this.viewer.goTo(s.pages.length - 1); return;
+      case 'zoom-in': this.zoomBy(1.18); return;
+      case 'zoom-out': this.zoomBy(0.85); return;
+      case 'fit-page': if (s) this.viewer.setFit('page'); return;
+      case 'close-tab': if (s) void this.closeSession(s).catch(err => reportError('Closing', err)); return;
+      case 'pan': if (s) this.tools.setTool(this.tools.tool === 'hand' ? 'select' : 'hand'); return;
+      case 'sticky': toolIn('edit', 'note'); return;
+      case 'highlight': toolIn('edit', 'highlight'); return;
+      case 'underline': toolIn('edit', 'underline'); return;
+      case 'strikeout': toolIn('edit', 'strikeout'); return;
+      case 'squiggly': toolIn('edit', 'squiggly'); return;
+      case 'ink': toolIn('edit', 'pen'); return;
+      case 'eraser': toolIn('edit', 'eraser'); return;
+      case 'marker': toolIn('edit', 'marker'); return;
+      case 'textbox': toolIn('edit', 'text'); return;
+      case 'square': toolIn('edit', 'rect'); return;
+      case 'oval': toolIn('edit', 'ellipse'); return;
+      case 'line': toolIn('edit', 'line'); return;
+      case 'arrow': toolIn('edit', 'arrow'); return;
+      case 'multiselect': toolIn('edit', 'multiselect'); return;
+      case 'lasso': toolIn('edit', 'lasso'); return;
+      case 'stamper': if (s) { if (this.mode !== 'edit') this.setMode('edit'); void this.insertImage().catch(err => reportError('Stamper', err)); } return;
+      case 'signature': if (s) { if (this.mode !== 'edit') this.setMode('edit'); void this.chooseSignature().catch(err => reportError('Signature', err)); } return;
+      case 'cut': {
+        const chosen = this.viewer.selectedAnnots();
+        if (chosen && s) { this.clip = { annots: [...chosen.annots], pageId: chosen.page.id }; this.deleteSelection(); }
+        return;
+      }
+      case 'undo': s?.undo(); return;
+      case 'redo': s?.redo(); return;
+      case 'duplicate': {
+        const chosen = this.viewer.selectedAnnots();
+        if (chosen && s) { this.clip = { annots: [...chosen.annots], pageId: chosen.page.id }; this.pasteClip(); }
+        return;
+      }
+      case 'lookup': this.study.lookupSelection(); return;
+      case 'lookup-toggle': this.study.toggleLookup(); return;
+      case 'markdown': toolIn('study', 'markdown'); return;
+      case 'read-picture': toolIn('study', 'read-picture'); return;
+      case 'equation': if (s) void this.study.insertEquation().catch(err => reportError('The equation', err)); return;
+      case 'open': void this.openDialog().catch(err => reportError('Opening', err)); return;
+      case 'new': this.newDocument(); return;
+      case 'save': case 'save-as': if (s) void this.save(id === 'save-as').catch(err => reportError('Saving', err)); return;
+      case 'fullscreen': void this.fullscreen(); return;
+      case 'find': if (s) this.panels.show('search'); return;
+      case 'next-result': this.panels.search.step(1); return;
+      case 'prev-result': this.panels.search.step(-1); return;
+      case 'print': if (s) void this.print().catch(err => reportError('Printing', err)); return;
+      case 'speech': if (s) void this.readAloud(); return;
+      case 'edit-mode': if (s) this.setMode(this.mode === 'edit' ? 'view' : 'edit'); return;
+      case 'actions': {
+        if (this.mode !== 'view') this.setMode('view');
+        this.row.buttonFor(this.cmd.actions)?.click();
+        return;
+      }
+      case 'help': void this.showHelp(); return;
+    }
   }
 
   deleteSelection() {
@@ -1075,11 +1286,9 @@ export class App {
   }
 
   toggleUiTheme() {
-    const root = document.documentElement;
-    const isDark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-    const next = isDark ? 'light' : 'dark';
-    root.dataset.theme = next;
-    try { localStorage.setItem('pdfy.uiTheme', next); } catch { /* Storage may be off. */ }
+    const dark = UI_THEMES.find(t => t.id === currentUiTheme())?.dark;
+    applyUiTheme(dark ? DEFAULT_LIGHT : DEFAULT_DARK);
+    this.syncRibbon();
   }
 
   async fullscreen() {

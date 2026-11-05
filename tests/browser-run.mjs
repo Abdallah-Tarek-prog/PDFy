@@ -1,6 +1,6 @@
 // Runs the in-app feature test in a hidden Edge window, so nothing appears on screen.
 // Usage: node tests/browser-run.mjs [test-file.js] [--shots]
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +13,13 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const visual = process.argv.includes('--visual');
 const testFile = visual ? 'visual.js' : process.argv.includes('--study') ? 'study-tests.js' : process.argv.includes('--ui') ? 'ui-tests.js' : process.argv.includes('--commands') ? 'command-tests.js' : 'browser-tests.js';
 const only = process.argv.slice(2).find(a => !a.startsWith('--')) ?? '';
+
+// A test browser left over from an earlier run would answer instead of this one, with old code loaded.
+try {
+  await fetch(`http://127.0.0.1:${CDP_PORT}/json`, { signal: AbortSignal.timeout(800) });
+  console.log(`Port ${CDP_PORT} is already taken, probably by a test browser left from an earlier run. Close it first.`);
+  process.exit(1);
+} catch { /* Free, as it should be. */ }
 
 const server = spawn(process.execPath, ['serve.mjs'], { cwd: root, env: { ...process.env, PORT: String(WEB_PORT) }, stdio: 'ignore' });
 const profile = mkdtempSync(join(tmpdir(), 'pdfy-edge-'));
@@ -122,7 +129,16 @@ try {
 } catch (err) {
   console.log('Runner failed:', err.message);
 } finally {
-  edge.kill();
+  // Edge starts helper processes of its own. Asking the browser to close ends all of them.
+  try {
+    const v = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`, { signal: AbortSignal.timeout(1500) })).json();
+    const bws = new WebSocket(v.webSocketDebuggerUrl);
+    await new Promise((res, rej) => { bws.onopen = res; bws.onerror = rej; setTimeout(rej, 1500); });
+    bws.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+    await wait(600);
+  } catch { /* Already gone. */ }
+  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(edge.pid), '/T', '/F'], { stdio: 'ignore' });
+  else edge.kill();
   server.kill();
   await wait(1200);
   try { rmSync(profile, { recursive: true, force: true }); } catch { /* A leftover temp folder is harmless. */ }

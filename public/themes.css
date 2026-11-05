@@ -1,0 +1,271 @@
+/* Load after styles.css. Only semantic colours: layout belongs to styles.css. */
+
+/* Slate: blue-grey chrome, a lifted canvas and a clear sky-blue accent. */
+:root[data-ui-theme="slate"] {
+  color-scheme: dark;
+  --bg: #1d242e;
+  --surface: #252d38;
+  --surface-2: #303e50;
+  --surface-3: #3a4b60;
+  --border: #48596d;
+  --text: #edf2f8;
+  --muted: #bdcbdc;
+  --accent: #79b7ef;
+  --accent-ink: #10253b;
+  --accent-soft: #2c435b;
+  --accent-text: #a3d2ff;
+  --chrome: #2b3037;
+  --chrome-2: #20252c;
+  --chrome-text: #edf2f8;
+  --chrome-muted: #b7c4d4;
+  --chrome-hover: #35465a;
+  --chrome-active: #37516d;
+  --chrome-border: #495361;
+  --tab-active: #36404e;
+  --canvas-bg: #414955;
+  --page-shadow: 0 2px 5px rgb(10 18 30 / 0.28), 0 12px 30px rgb(10 18 30 / 0.32);
+  --shadow: 0 3px 8px rgb(10 18 30 / 0.24), 0 16px 40px rgb(10 18 30 / 0.38);
+  --ok: #8ed3a8;
+  --warn: #f1c878;
+  --danger: #ff9d9b;
+}
+
+/* Midnight: ink-blue layers, electric periwinkle and cool starlight. */
+:root[data-ui-theme="midnight"] {
+  color-scheme: dark;
+  --bg: #141928;
+  --surface: #1d2338;
+  --surface-2: #2a3250;
+  --surface-3: #343f61;
+  --border: #47557b;
+  --text: #e3eaff;
+  --muted: #bdc8e8;
+  --accent: #a89aff;
+  --accent-ink: #201940;
+  --accent-soft: #37325a;
+  --accent-text: #c3b7ff;
+  --chrome: #1a2035;
+  --chrome-2: #111629;
+  --chrome-text: #e6ecff;
+  --chrome-muted: #abb9dd;
+  --chrome-hover: #30365a;
+  --chrome-active: #423c6c;
+  --chrome-border: #3d476a;
+  --tab-active: #2a3151;
+  --canvas-bg: #292f48;
+  --page-shadow: 0 2px 6px rgb(7 10 30 / 0.36), 0 14px 34px rgb(7 10 30 / 0.42);
+  --shadow: 0 3px 9px rgb(7 10 30 / 0.32), 0 18px 44px rgb(7 10 30 / 0.48);
+  --ok: #8adbc2;
+  --warn: #f2d58d;
+  --danger: #ffa6bf;
+}
+
+/* Mocha: warm plum, soft mauve and rose, with no neutral-grey layers. */
+:root[data-ui-theme="mocha"] {
+  color-scheme: dark;
+  --bg: #1e1a25;
+  --surface: #2b2533;
+  --surface-2: #3a3044;
+  --surface-3: #483a51;
+  --border: #62506b;
+  --text: #f2e7f5;
+  --muted: #cebed5;
+  --accent: #e4a9dd;
+  --accent-ink: #321d36;
+  --accent-soft: #48314d;
+  --accent-text: #efb8df;
+  --chrome: #302838;
+  --chrome-2: #201c29;
+  --chrome-text: #f4e8f5;
+  --chrome-muted: #cab6d2;
+  --chrome-hover: #45344c;
+  --chrome-active: #583a5b;
+  --chrome-border: #5f4967;
+  --tab-active: #433349;
+  --canvas-bg: #443a4d;
+  --page-shadow: 0 2px 6px rgb(24 12 31 / 0.3), 0 12px 30px rgb(24 12 31 / 0.36);
+  --shadow: 0 3px 8px rgb(24 12 31 / 0.28), 0 16px 40px rgb(24 12 31 / 0.42);
+  --ok: #acd7b3;
+  --warn: #f0d296;
+  --danger: #f6a7b5;
+}
+
+/* Dracula: violet-black foundations, pink actions and cyan active labels. */
+:root[data-ui-theme="dracula"] {
+  color-scheme: dark;
+  --bg: #18151f;
+  --surface: #272331;
+  --surface-2: #352d44;
+  --surface-3: #433456;
+  --border: #604a78;
+  --text: #f3eafa;
+  --muted: #c8b6d6;
+  --accent: #f18fca;
+  --accent-ink: #331728;
+  --accent-soft: #4e2c48;
+  --accent-text: #8ce5e8;
+  --chrome: #241f30;
+  --chrome-2: #191621;
+  --chrome-text: #f4ebff;
+  --chrome-muted: #c5addb;
+  --chrome-hover: #3b2e4e;
+  --chrome-active: #4b3154;
+  --chrome-border: #5b4373;
+  --tab-active: #392b49;
+  --canvas-bg: #393245;
+  --page-shadow: 0 2px 6px rgb(16 7 26 / 0.34), 0 14px 32px rgb(16 7 26 / 0.4);
+  --shadow: 0 3px 9px rgb(16 7 26 / 0.3), 0 18px 42px rgb(16 7 26 / 0.46);
+  --ok: #9cebb1;
+  --warn: #f1e394;
+  --danger: #ff9eb3;
+}
+
+/* Nord: polar blue surfaces and a frost-blue accent. */
+:root[data-ui-theme="nord"] {
+  color-scheme: dark;
+  --bg: #222e3c;
+  --surface: #2e3c4d;
+  --surface-2: #3a4b60;
+  --surface-3: #455973;
+  --border: #60758d;
+  --text: #ecf3fb;
+  --muted: #cad7e8;
+  --accent: #9ad8e1;
+  --accent-ink: #15313d;
+  --accent-soft: #3b5362;
+  --accent-text: #c5edf1;
+  --chrome: #304054;
+  --chrome-2: #233041;
+  --chrome-text: #edf4fc;
+  --chrome-muted: #c0d0e2;
+  --chrome-hover: #405970;
+  --chrome-active: #48647a;
+  --chrome-border: #5c738c;
+  --tab-active: #3e5269;
+  --canvas-bg: #435367;
+  --page-shadow: 0 2px 5px rgb(12 25 41 / 0.28), 0 12px 30px rgb(12 25 41 / 0.34);
+  --shadow: 0 3px 8px rgb(12 25 41 / 0.26), 0 16px 40px rgb(12 25 41 / 0.4);
+  --ok: #b9dbb8;
+  --warn: #f3d69c;
+  --danger: #ffb0ba;
+}
+
+/* Forest: bottle-green depth and a fluorescent yellow marker. */
+:root[data-ui-theme="forest"] {
+  color-scheme: dark;
+  --bg: #10251f;
+  --surface: #19372c;
+  --surface-2: #254a3a;
+  --surface-3: #305a43;
+  --border: #52765b;
+  --text: #eef6e6;
+  --muted: #c9dcc3;
+  --accent: #e0f36a;
+  --accent-ink: #1e321a;
+  --accent-soft: #344c27;
+  --accent-text: #e6f986;
+  --chrome: #173d2e;
+  --chrome-2: #102d24;
+  --chrome-text: #f0f6e8;
+  --chrome-muted: #c1d5b9;
+  --chrome-hover: #2a5338;
+  --chrome-active: #3b562b;
+  --chrome-border: #4b7253;
+  --tab-active: #284e35;
+  --canvas-bg: #285343;
+  --page-shadow: 0 2px 5px rgb(5 24 16 / 0.3), 0 12px 30px rgb(5 24 16 / 0.36);
+  --shadow: 0 3px 8px rgb(5 24 16 / 0.28), 0 16px 40px rgb(5 24 16 / 0.42);
+  --ok: #a4e2b2;
+  --warn: #f4d58c;
+  --danger: #ffb1a0;
+}
+
+/* Ember: warm graphite and copper-orange, like a lamp over the desk. */
+:root[data-ui-theme="ember"] {
+  color-scheme: dark;
+  --bg: #241e1b;
+  --surface: #302923;
+  --surface-2: #43362d;
+  --surface-3: #514034;
+  --border: #705646;
+  --text: #f6ede5;
+  --muted: #d0bbab;
+  --accent: #ffb273;
+  --accent-ink: #3d2113;
+  --accent-soft: #563727;
+  --accent-text: #ffc391;
+  --chrome: #332b26;
+  --chrome-2: #251f1b;
+  --chrome-text: #f8eee5;
+  --chrome-muted: #d5bdab;
+  --chrome-hover: #4d382b;
+  --chrome-active: #633e28;
+  --chrome-border: #70513e;
+  --tab-active: #49372c;
+  --canvas-bg: #4c4138;
+  --page-shadow: 0 2px 5px rgb(30 15 8 / 0.3), 0 12px 30px rgb(30 15 8 / 0.36);
+  --shadow: 0 3px 8px rgb(30 15 8 / 0.28), 0 16px 40px rgb(30 15 8 / 0.42);
+  --ok: #b4daa6;
+  --warn: #f6d089;
+  --danger: #ff9b96;
+}
+
+/* Daylight: crisp blue-white panels under a comfortable mid-grey header. */
+:root[data-ui-theme="daylight"] {
+  color-scheme: light;
+  --bg: #e9eef5;
+  --surface: #fcfdff;
+  --surface-2: #e1eaf6;
+  --surface-3: #cfdff3;
+  --border: #b4c3d7;
+  --text: #202c3e;
+  --muted: #4d5c70;
+  --accent: #285fb9;
+  --accent-ink: #ffffff;
+  --accent-soft: #dce9fd;
+  --accent-text: #214f9c;
+  --chrome: #535d6c;
+  --chrome-2: #454e5d;
+  --chrome-text: #f5f8fc;
+  --chrome-muted: #dde5ef;
+  --chrome-hover: #626f84;
+  --chrome-active: #3c5278;
+  --chrome-border: #758399;
+  --tab-active: #60718b;
+  --canvas-bg: #a7b1c0;
+  --page-shadow: 0 2px 4px rgb(31 47 72 / 0.18), 0 10px 26px rgb(31 47 72 / 0.22);
+  --shadow: 0 3px 8px rgb(31 47 72 / 0.12), 0 16px 36px rgb(31 47 72 / 0.2);
+  --ok: #276644;
+  --warn: #805510;
+  --danger: #a93339;
+}
+
+/* Paper: warm ivory panels, sepia chrome and walnut accents. */
+:root[data-ui-theme="paper"] {
+  color-scheme: light;
+  --bg: #eee7d9;
+  --surface: #fcf6e9;
+  --surface-2: #ede1ca;
+  --surface-3: #e1cfb1;
+  --border: #cbb99e;
+  --text: #382e26;
+  --muted: #67523e;
+  --accent: #80502f;
+  --accent-ink: #fffaf2;
+  --accent-soft: #ecdbc3;
+  --accent-text: #754222;
+  --chrome: #675743;
+  --chrome-2: #514432;
+  --chrome-text: #fff6e4;
+  --chrome-muted: #f0dfc6;
+  --chrome-hover: #7b664c;
+  --chrome-active: #805f3b;
+  --chrome-border: #a18b69;
+  --tab-active: #746046;
+  --canvas-bg: #b9a88c;
+  --page-shadow: 0 2px 4px rgb(60 41 19 / 0.16), 0 10px 26px rgb(60 41 19 / 0.2);
+  --shadow: 0 3px 8px rgb(60 41 19 / 0.12), 0 16px 36px rgb(60 41 19 / 0.2);
+  --ok: #38633d;
+  --warn: #80530d;
+  --danger: #a13732;
+}

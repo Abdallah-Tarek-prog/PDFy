@@ -20,6 +20,7 @@ import * as docmodel from './features/docmodel';
 import * as docxEditor from './features/docx-editor';
 import { unzipSync, strFromU8 } from 'fflate';
 import { reportError, toast } from './ui/dom';
+import { applyUiTheme, currentUiTheme } from './ui/themes';
 import { onFontMessage, restoreAddedFonts, installedFonts, addFontFiles } from './study/fonts';
 import { ensureRichCss } from './study/mdthemes';
 import { onPageMessage } from './study/publishers';
@@ -37,10 +38,8 @@ window.addEventListener('unhandledrejection', e => {
   reportError('A background task', reason);
 });
 
-try {
-  const saved = localStorage.getItem('pdfy.uiTheme');
-  if (saved) document.documentElement.dataset.theme = saved;
-} catch { /* Storage may be off. */ }
+// The interface theme goes on before anything is drawn, so there is no flash of the wrong colours.
+applyUiTheme(currentUiTheme());
 
 ensureRichCss();
 void restoreAddedFonts();
@@ -61,5 +60,5 @@ window.chrome?.webview?.postMessage({ type: 'ready' });
 
 // Used by the automated tests.
 if (location.hostname === 'localhost' || new URLSearchParams(location.search).has('test')) {
-  Object.assign(window, { __pdfy: app, __api: { ...jobs, ...engine, ...recovery, ...images, ...decor, ...convert, ...compare, ...xfdf, ...search, ...decoders, ...detect, ...batch, ...ocr, ...office, ...sign, ...docmodel, ...docxEditor, ...study, installedFonts, addFontFiles, unzipSync, strFromU8, Session } });
+  Object.assign(window, { __pdfy: app, __api: { ...jobs, ...engine, ...recovery, ...images, ...decor, ...convert, ...compare, ...xfdf, ...search, ...decoders, ...detect, ...batch, ...ocr, ...office, ...sign, ...docmodel, ...docxEditor, ...study, installedFonts, addFontFiles, applyUiTheme, unzipSync, strFromU8, Session } });
 }

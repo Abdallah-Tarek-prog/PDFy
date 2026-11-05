@@ -13,7 +13,6 @@ async function settle(ms = 3000) {
   await wait(120);
 }
 const closeAll = async () => { for (const s of [...app.sessions]) { s.dirty = false; await app.closeSession(s); } };
-const tab = async id => { [...document.querySelectorAll('.ribbon-tab')].find(b => b.textContent === id).click(); await wait(80); };
 const only = window.__only ? new RegExp(window.__only, 'i') : null;
 const part = async (name, fn) => {
   if (only && !only.test(name)) return;
@@ -22,18 +21,29 @@ const part = async (name, fn) => {
 };
 
 await part('start', async () => {
-  document.documentElement.dataset.theme = 'light';
+  A.applyUiTheme('daylight');
   await shot('01-start-light');
 });
 
-await part('tabs', async () => {
+await part('modes', async () => {
   const s = await app.openPdfBlob(await fx('normal.pdf'), 'normal.pdf');
   await settle();
-  for (const t of ['Home', 'Comment', 'Shapes', 'Insert', 'Edit', 'Pages', 'Forms', 'Protect', 'Convert']) {
-    await tab(t);
-    await shot(`02-tab-${t.toLowerCase()}`, 120);
+  // Each interface theme, in the three toolbar modes, as Xodo lays them out.
+  for (const theme of ['slate', 'midnight', 'mocha', 'dracula', 'nord', 'forest', 'ember', 'daylight', 'paper']) {
+    A.applyUiTheme(theme);
+    app.setMode(theme === 'slate' || theme === 'daylight' ? 'edit' : 'view');
+    await shot(`02-${theme}-${app.mode}`, 200);
   }
-  await tab('Home');
+  A.applyUiTheme('slate');
+  app.setMode('study');
+  await shot('02-slate-study', 150);
+  app.setMode('view');
+  (await app.revealCommand('Compress'));
+  await shot('02-slate-actions-menu', 250);
+  document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  void app.showHelp();
+  await shot('02-slate-shortcuts', 300);
+  document.querySelector('.overlay-bg .primary')?.click();
   s.dirty = false;
 });
 
@@ -86,7 +96,7 @@ await part('annots', async () => {
 
 await part('theme', async () => {
   await closeAll();
-  document.documentElement.dataset.theme = 'light';
+  A.applyUiTheme('daylight');
   await window.paste(await window.mockGemini());
   await wait(900);
   await shot('05-paste-original');
@@ -119,7 +129,7 @@ await part('real', async () => {
 
 await part('panels', async () => {
   await closeAll();
-  document.documentElement.dataset.theme = 'dark';
+  A.applyUiTheme('slate');
   const s = await app.openPdfBlob(await fx('annotated.pdf'), 'annotated.pdf');
   await settle();
   s.addAnnots(s.pages[0], [{ id: 'nn', kind: 'note', rect: [500, 700, 520, 720], color: '#ffe066', fill: '#ffe066', opacity: 1, width: 0.75, contents: 'Please check this number', author: 'Reviewer' }]);
@@ -141,7 +151,7 @@ await part('panels', async () => {
 
 await part('dialogs', async () => {
   await closeAll();
-  document.documentElement.dataset.theme = 'light';
+  A.applyUiTheme('daylight');
   const s = await app.openPdfBlob(await fx('normal.pdf'), 'normal.pdf');
   await settle();
   void app.watermarkDialog();
@@ -164,7 +174,7 @@ await part('dialogs', async () => {
 
 await part('languages', async () => {
   await closeAll();
-  document.documentElement.dataset.theme = 'light';
+  A.applyUiTheme('daylight');
   const s = await app.openPdfBlob(await fx('normal.pdf'), 'normal.pdf');
   await settle();
   const base = { kind: 'text', color: '#111111', textColor: '#111111', opacity: 1, width: 0, fontSize: 20 };
@@ -193,7 +203,7 @@ await part('languages', async () => {
 
 await part('word', async () => {
   await closeAll();
-  document.documentElement.dataset.theme = 'light';
+  A.applyUiTheme('daylight');
   const f = await fx('sample.docx');
   void A.openDocxEditor(new File([f], 'sample.docx'), { save: async () => true, toPdf: async () => {}, pickImage: async () => undefined });
   await shot('22-word-editor', 600);

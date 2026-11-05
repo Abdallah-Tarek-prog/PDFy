@@ -33,15 +33,15 @@ const SANS = 'Segoe UI', SERIF = 'Georgia', MONO = 'Consolas';
 
 const dark = (id: string, name: string, p: Partial<MdTheme>): MdTheme => ({
   id, name, builtIn: true, font: SANS, headingFont: SANS, monoFont: MONO, size: 12, lineHeight: 1.5, headingWeight: 650,
-  text: '#dcddde', heading: '#f1f1f3', strong: '#ffffff', accent: '#8a6cf0', link: '#a78bfa',
-  markBg: '#6b5a15', markFg: '#fff6c9', codeBg: '#2a2a31', codeFg: '#e6c07b', quoteBar: '#8a6cf0', quoteText: '#b4b6ba',
-  border: '#44454d', background: '#1e1e22', showBackground: true, padding: 10, radius: 6, ...p,
+  text: '#ede6f7', heading: '#d6b4ff', strong: '#ffcae5', accent: '#c8a0fa', link: '#8ed7fa',
+  markBg: '#e8cf76', markFg: '#312418', codeBg: '#30243e', codeFg: '#facb8e', quoteBar: '#ac8cda', quoteText: '#bdb0cd',
+  border: '#594468', background: '#211b2c', showBackground: true, padding: 10, radius: 6, ...p,
 });
 const light = (id: string, name: string, p: Partial<MdTheme>): MdTheme => ({
   id, name, builtIn: true, font: SANS, headingFont: SANS, monoFont: MONO, size: 12, lineHeight: 1.5, headingWeight: 650,
-  text: '#2e3338', heading: '#16181c', strong: '#111317', accent: '#6d4fd8', link: '#5a3fc4',
-  markBg: '#fff2a8', markFg: '#2e2a12', codeBg: '#f1f1f4', codeFg: '#b0345a', quoteBar: '#6d4fd8', quoteText: '#5c6168',
-  border: '#d5d6db', background: '#ffffff', showBackground: false, padding: 8, radius: 6, ...p,
+  text: '#2c3240', heading: '#4c3478', strong: '#3a2754', accent: '#6843ad', link: '#245aa8',
+  markBg: '#ffe18a', markFg: '#3f2c15', codeBg: '#eef0f7', codeFg: '#853a69', quoteBar: '#8d70bd', quoteText: '#596273',
+  border: '#d4d9e6', background: '#ffffff', showBackground: false, padding: 8, radius: 6, ...p,
 });
 
 /** "Obsidian" and "GitHub" here mean a look in that spirit. The colours were chosen by eye, not copied. */
@@ -49,12 +49,12 @@ export const BUILT_IN_THEMES: MdTheme[] = [
   light('obsidian-light', 'Obsidian light', {}),
   dark('obsidian-dark', 'Obsidian dark', {}),
   light('github-light', 'GitHub light', {
-    text: '#1f2328', heading: '#1f2328', accent: '#0969da', link: '#0969da', quoteBar: '#d0d7de', quoteText: '#59636e',
-    codeBg: '#eff1f3', codeFg: '#1f2328', border: '#d0d7de', headingWeight: 600,
+    text: '#242c38', heading: '#20466f', strong: '#1b3047', accent: '#2260ad', link: '#2260ad', quoteBar: '#90a9c6', quoteText: '#59636e',
+    codeBg: '#eef2f7', codeFg: '#95375d', border: '#d0d9e4', headingWeight: 600,
   }),
   dark('github-dark', 'GitHub dark', {
-    text: '#e6edf3', heading: '#e6edf3', accent: '#4493f8', link: '#4493f8', quoteBar: '#3d444d', quoteText: '#9198a1',
-    codeBg: '#262c36', codeFg: '#e6edf3', border: '#3d444d', background: '#0d1117', headingWeight: 600,
+    text: '#e2edf7', heading: '#93c7ff', strong: '#ffc79b', accent: '#83c8ff', link: '#89d9e5', quoteBar: '#719ad0', quoteText: '#afc0d4',
+    markBg: '#edcd7f', markFg: '#302519', codeBg: '#223249', codeFg: '#ffbd98', border: '#3d5571', background: '#152131', headingWeight: 600,
   }),
   light('academic', 'Academic serif', {
     font: SERIF, headingFont: SERIF, size: 12, lineHeight: 1.55, headingWeight: 700,
@@ -62,17 +62,33 @@ export const BUILT_IN_THEMES: MdTheme[] = [
     codeBg: '#f3f1ec', codeFg: '#3b3b3b', markBg: '#f6e7b4', border: '#c9c5bd',
   }),
   light('sepia', 'Sepia notes', {
-    font: SERIF, headingFont: SANS, text: '#43372a', heading: '#2f2519', strong: '#2a2015', accent: '#a85a1b', link: '#9a4f12',
+    font: SERIF, headingFont: SANS, text: '#43372a', heading: '#2f2519', strong: '#2a2015', accent: '#914916', link: '#9a4f12',
     markBg: '#f1d78a', markFg: '#3a2c12', codeBg: '#ebdfc8', codeFg: '#7c3b12', quoteBar: '#c49a6c', quoteText: '#6a5843',
     border: '#d3c2a4', background: '#f7efdf', showBackground: true, padding: 10,
   }),
   light('revision', 'Exam revision', {
-    size: 12, lineHeight: 1.42, headingWeight: 700, heading: '#a4161a', strong: '#a4161a', accent: '#d9480f', link: '#1864ab',
+    size: 12, lineHeight: 1.42, headingWeight: 700, heading: '#a4161a', strong: '#a4161a', accent: '#b93b12', link: '#1864ab',
     markBg: '#ffe066', quoteBar: '#d9480f', codeFg: '#1864ab', background: '#fffdf5', showBackground: true, padding: 10,
   }),
   dark('night-owl', 'Night reading', {
-    text: '#d6deeb', heading: '#ffffff', strong: '#ffffff', accent: '#7fdbca', link: '#82aaff', markBg: '#3f5f4f', markFg: '#eafff3',
-    codeBg: '#01111d', codeFg: '#ecc48d', quoteBar: '#7fdbca', quoteText: '#a2b4c8', border: '#2b3f55', background: '#011627',
+    text: '#dceaf3', heading: '#8fe2cf', strong: '#f7bcdb', accent: '#aeb2ff', link: '#9ec8ff', markBg: '#d8c779', markFg: '#172f30',
+    codeBg: '#192d40', codeFg: '#f1c996', quoteBar: '#77ccb9', quoteText: '#acc3d7', border: '#38556b', background: '#102232',
+  }),
+  dark('tokyo-night', 'Tokyo night', {
+    text: '#d8e0fa', heading: '#bbacff', strong: '#ffc3df', accent: '#a89cff', link: '#8cbcff', markBg: '#edcf8b', markFg: '#30233e',
+    codeBg: '#292f49', codeFg: '#89dfd4', quoteBar: '#8c84cf', quoteText: '#b1bedc', border: '#485175', background: '#1c2034',
+  }),
+  dark('catppuccin', 'Catppuccin', {
+    text: '#ede2f4', heading: '#dfb5f4', strong: '#f4bbd4', accent: '#d6a7f0', link: '#9ac8ed', markBg: '#efd18d', markFg: '#382638',
+    codeBg: '#392d43', codeFg: '#fac49e', quoteBar: '#b990cf', quoteText: '#c6b6d1', border: '#634b70', background: '#292333',
+  }),
+  dark('dracula', 'Dracula', {
+    text: '#f0e9fa', heading: '#f5a2d4', strong: '#d2b0ff', accent: '#c2a2ff', link: '#85e0ea', markBg: '#ede58d', markFg: '#30233d',
+    codeBg: '#362942', codeFg: '#a2edbe', quoteBar: '#b990ef', quoteText: '#c5b4d8', border: '#624b7c', background: '#241e30',
+  }),
+  dark('nord', 'Nord', {
+    text: '#e6eff9', heading: '#abdde5', strong: '#d2c3eb', accent: '#a0d5e5', link: '#afd0fa', markBg: '#eed397', markFg: '#293a4a',
+    codeBg: '#36485c', codeFg: '#c5e7ba', quoteBar: '#8ab6cc', quoteText: '#bdcde0', border: '#5a718b', background: '#293848',
   }),
 ];
 

@@ -13,7 +13,7 @@ Adobe Acrobat is listed as the reference for what a full editor can do.
 | ⬜ | Not built yet |
 | ☁️ | Needs an outside service, so not built |
 
-Last updated 2026-11-05. See "How this was checked" at the end.
+Last updated 2026-11-06. See "How this was checked" at the end.
 
 ---
 
@@ -54,9 +54,28 @@ What is left is mostly design choices no converter can guess, such as GitHub's f
 
 ---
 
+## 1a. Layout, keys, window and themes (2026-11-06)
+
+Laid out like the Xodo app installed on this PC (Xodo 6.3.4, the Microsoft Store version).
+
+| Feature | What the user sees | Status |
+|---|---|---|
+| Xodo's layout | One toolbar row with icons and labels. **Read** has Open, Save, Print, Actions, Undo, Edit, Study, panels, View and More. **Edit** has Xodo's markup tools in Xodo's order. **Study** has the study tools. Close or Escape goes back to Read | ✅ |
+| One Actions menu | Every document tool (pages, convert, protect and sign, forms, tools) in one menu with a search box. Ctrl+K opens it | ✅ |
+| Nothing cut off | Tools that do not fit the window move into More | ✅ |
+| Xodo's keyboard shortcuts | The same keys as the installed Xodo, read from its own shortcut list: H highlight, U underline, G squiggly, C sticky, I ink, M marker, E eraser, T text box, R square, O oval, L line, A arrow, S signature, K stamper, P pan, Ctrl+M multi-select, Ctrl+L lasso, Ctrl+R read aloud, Ctrl+1 to 9 for documents, F11 full screen | ✅ |
+| Changing the shortcuts | F1 lists every shortcut, grouped as in Xodo. Change any key, see clashes, and reset to Xodo's keys | ✅ |
+| Keys with an Arabic layout | Shortcuts follow the key's position, so they work while typing Arabic | ✅ |
+| Multi-select and lasso | Drag a box, or draw a loop, around objects to select them together | ✅ |
+| No Windows title bar | PDFy's own header holds minimise, maximise and close. All four edges and corners resize. Maximised, it fills the screen exactly. Checked in the real app on this PC at 125% scaling | ✅ |
+| Moving and snapping the window | Drag the header to move it, double-click to maximise, Snap to screen edges. Built on Windows' own support, but not yet tried with a real mouse | 🔵 |
+| Floating controls | Page number bottom left and zoom bottom right, as in Xodo. Style options float above the page only when something is chosen, so the page never jumps | ✅ |
+| Interface themes | Slate (default dark), Midnight, Mocha, Dracula, Nord, Forest, Ember, Daylight (default light) and Paper, under View. All text passes the readability contrast check (at least 4.5 to 1; secondary labels at least 3.9 to 1) | ✅ |
+| Livelier note themes | Refreshed dark Markdown note themes, plus Tokyo Night, Catppuccin, Dracula and Nord | ✅ |
+
 ## 1b. Study tools (added 2026-11-05)
 
-All of these are in the **Study** tab. The look is today's ribbon for now; see "Next" at the end.
+All of these are under **Study** in the toolbar.
 
 | Feature | What the user sees | Status |
 |---|---|---|
@@ -271,7 +290,7 @@ Adobe's own matrix could not be fully read, so treat this list as close, not exh
 ## How this was checked
 
 - **Theme engine and geometry:** 26 automatic tests (`npm test`).
-- **Every ribbon command through its real dialog:** 22 tests, with stand-ins only for Windows' own file pickers (`node tests/browser-run.mjs --commands`).
+- **Every toolbar and menu command through its real dialog:** 22 tests, with stand-ins only for Windows' own file pickers (`node tests/browser-run.mjs --commands`).
 - **Features:** 59 tests run inside the app in a hidden Edge window. Most save a real file and read it back with a fresh engine (`node tests/browser-run.mjs`).
 - **The real PDFy.exe:** 22 tests, including a forced crash, saving back to disk, and Office files through the real print engine (`node tests/host-test.mjs`).
 - **By eye:** screenshots of the tabs, dialogs, panels and themes.
@@ -285,8 +304,6 @@ Adobe's own matrix could not be fully read, so treat this list as close, not exh
 
 ---
 
-## Next: a completely new look
+## The look
 
-We will design completely new UI pages and a new look for PDFy, far from Xodo, Adobe Acrobat and
-similar editors: unique, distinctive and good to use. The ribbon above is a stand-in. The plan is in
-[DESIGN.md](DESIGN.md), with a picture in [design/concept.html](design/concept.html). Not built yet.
+The layout now follows Xodo's, as asked on 2026-11-06: the same tool layout, the same keys and the same kind of window. The colours are PDFy's own themes. [DESIGN.md](DESIGN.md) records the earlier idea of a page margin for notes, which is not built.
