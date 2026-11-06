@@ -38,6 +38,9 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'fit-page', group: 'Navigating', label: 'Fit the whole page', icon: 'fitPage', keys: ['Ctrl+0'], global: true },
   { id: 'tab-n', group: 'Navigating', label: 'Go to document 1 to 9', icon: 'thumbs', keys: ['Ctrl+1-9'], global: true, fixed: true },
   { id: 'close-tab', group: 'Navigating', label: 'Close current document', icon: 'close', keys: ['Ctrl+W'], global: true },
+  { id: 'reopen-closed', group: 'Navigating', label: 'Reopen the document you closed last', icon: 'history', keys: ['Ctrl+Shift+T'], global: true, pdfy: true },
+  { id: 'bookmark', group: 'Navigating', label: 'Bookmark this page, or remove its bookmark', icon: 'bookmarkAdd', keys: ['Ctrl+B'], pdfy: true },
+  { id: 'bookmarks', group: 'Navigating', label: 'Show or hide your bookmarks', icon: 'bookmark', keys: ['Ctrl+Shift+B'], pdfy: true },
   { id: 'escape', group: 'Navigating', label: 'Close the current menu or dialog', icon: 'close', keys: ['Escape'], fixed: true },
   // Annotating, as in Xodo
   { id: 'pan', group: 'Annotating', label: 'Pan', icon: 'hand', keys: ['P'] },
@@ -142,7 +145,7 @@ export function match(e: KeyboardEvent): Shortcut | null {
 const GROUP_TEXT: Record<ShortcutGroup, string> = {
   Navigating: 'Moving around documents and pages.',
   Annotating: 'Press a key to pick a tool, then draw on the page.',
-  Study: 'PDFy’s study tools. Not in Xodo.',
+  Study: 'PDFy’s study tools, on the Edit toolbar. Not in Xodo.',
   Other: 'Files, search, printing and more.',
 };
 

@@ -63,7 +63,7 @@ copyFileSync(join(root, 'tests', 'fixtures', 'normal.pdf'), sample);
 
 const t0 = Date.now();
 const child = spawn(exe, [sample], {
-  env: { ...process.env, PDFY_DEBUG_PORT: String(PORT), PDFY_DEV: '1' },
+  env: { ...process.env, PDFY_DEBUG_PORT: String(PORT), PDFY_DEV: '1', PDFY_TEST_DATA_DIR: work },
   stdio: 'ignore',
 });
 

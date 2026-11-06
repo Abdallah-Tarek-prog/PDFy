@@ -41,6 +41,18 @@ export class Session {
   private listeners = new Set<Listener>();
   /** Words found by OCR, per page id. */
   ocrWords = new Map<string, { x: number; y: number; w: number; h: number; text: string }[]>();
+  /** Words read from pictures with Read picture, kept for this session so search finds them. Not saved. */
+  pictureWords = new Map<string, { x: number; y: number; w: number; h: number; text: string }[]>();
+  /** Bumped per page whenever its picture words change, so search reads that page again. */
+  pictureRevs = new Map<string, number>();
+
+  addPictureWords(pageId: string, words: { x: number; y: number; w: number; h: number; text: string }[]) {
+    if (!words.length) return;
+    // Reading the same area twice should not list its words twice.
+    const old = (this.pictureWords.get(pageId) ?? []).filter(o => !words.some(n => Math.abs(n.x - o.x) < 1 && Math.abs(n.y - o.y) < 1));
+    this.pictureWords.set(pageId, [...old, ...words].slice(-5000));
+    this.pictureRevs.set(pageId, (this.pictureRevs.get(pageId) ?? 0) + 1);
+  }
 
   constructor(name: string) { this.name = name; }
 
@@ -177,6 +189,23 @@ export class Session {
         this.syncGhost(page, p[to]);
       }
       this.emit({ kind: 'annots', pageIds: [page.id] });
+    };
+    swap('before', 'after');
+    this.record({ label, undo: () => swap('after', 'before'), redo: () => swap('before', 'after') });
+  }
+
+  /** Objects on several pages changed together, as one undo step, such as one answer to a form question. */
+  replaceAcross(changes: { page: PageRef; before: Annot; after: Annot }[], label: string) {
+    if (!changes.length) return;
+    const swap = (from: 'before' | 'after', to: 'before' | 'after') => {
+      const touched = new Set<string>();
+      for (const c of changes) {
+        const i = c.page.annots.findIndex(a => a.id === c[from].id);
+        if (i >= 0) c.page.annots[i] = c[to];
+        this.syncGhost(c.page, c[to]);
+        touched.add(c.page.id);
+      }
+      this.emit({ kind: 'annots', pageIds: [...touched] });
     };
     swap('before', 'after');
     this.record({ label, undo: () => swap('after', 'before'), redo: () => swap('before', 'after') });

@@ -35,8 +35,8 @@ await part('modes', async () => {
     await shot(`02-${theme}-${app.mode}`, 200);
   }
   A.applyUiTheme('slate');
-  app.setMode('study');
-  await shot('02-slate-study', 150);
+  app.setMode('edit');
+  await shot('02-slate-edit-study-tools', 150);
   app.setMode('view');
   (await app.revealCommand('Compress'));
   await shot('02-slate-actions-menu', 250);

@@ -25,7 +25,7 @@ function localFrame(a: Annot): string {
 }
 
 export function annotNode(a: Annot): SVGElement {
-  const g = s('g', { 'data-id': a.id, class: `annot k-${a.kind}${a.ghost ? ' ghost' : ''}`, opacity: a.ghost ? null : a.opacity });
+  const g = s('g', { 'data-id': a.id, class: `annot k-${a.kind}${a.ghost ? ' ghost' : ''}${a.field ? ' own-field' : ''}`, opacity: a.ghost ? null : a.opacity });
 
   if (a.ghost) {
     // The PDF engine still draws this one. All we need is something clickable.
@@ -58,7 +58,7 @@ export function annotNode(a: Annot): SVGElement {
     const [x0, y0, x1, y1] = a.rect;
     g.append(s('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, fill: 'rgba(11,87,208,.08)', stroke: '#0b57d0', 'stroke-width': 0.75 }));
     const frame = s('g', { transform: localFrame(a) });
-    const label = s('text', { x: 3, y: Math.min(11, y1 - y0 - 2), 'font-size': 8.5, fill: '#0b57d0', 'font-family': 'Arial, sans-serif' });
+    const label = s('text', { class: 'field-label', x: 3, y: Math.min(11, y1 - y0 - 2), 'font-size': 8.5, fill: '#0b57d0', 'font-family': 'Arial, sans-serif' });
     label.textContent = `${a.field.type}: ${a.field.name}`;
     frame.append(label);
     g.append(frame);

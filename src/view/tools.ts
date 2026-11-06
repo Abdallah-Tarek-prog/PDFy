@@ -5,6 +5,7 @@ import { FONT_CSS, placeBox, pointsBounds, toPdf, toScreen, uid, viewportFor, ty
 import { fitMarkdown } from '../study/box';
 import { fontCss } from '../study/fonts';
 import { h, reportError, s, safe } from '../ui/dom';
+import { getSettings } from '../core/settings';
 import type { PageView, Viewer } from './viewer';
 
 export type Tool =
@@ -77,7 +78,12 @@ export class Tools {
   tool: Tool = 'select';
   hooks: ToolHooks = {};
   private custom = loadStyles();
+  /** Thickness and opacity per tool and colour, such as the yellow marker's own width. */
+  private byColour: Record<string, Record<string, { width: number; opacity: number }>> = (() => {
+    try { return JSON.parse(localStorage.getItem('pdfy.colourStyles') ?? '{}'); } catch { return {}; }
+  })();
   private gesture: { move(e: PointerEvent): void; up(e: PointerEvent): void; cancel(): void } | null = null;
+  private pointerId: number | null = null;
   private clickPts: { v: PageView; pts: number[]; node: SVGElement } | null = null;
   private editing: { commit(): void } | null = null;
   /** Edits still being finished, such as a note waiting for its equations. Saving waits for them. */
@@ -85,16 +91,29 @@ export class Tools {
 
   constructor(private viewer: Viewer) {
     const root = viewer.sizer;
-    root.addEventListener('pointerdown', e => safe((ev: PointerEvent) => this.down(ev), 'Drawing')(e));
+    viewer.scroller.addEventListener('contextmenu', e => {
+      if (performance.now() < this.noMenuUntil) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+    root.addEventListener('pointerdown', e => {
+      if (this.gesture) return;
+      safe((ev: PointerEvent) => this.down(ev), 'Drawing')(e);
+      this.pointerId = this.gesture ? e.pointerId : null;
+    });
     root.addEventListener('dblclick', e => safe((ev: MouseEvent) => this.dbl(ev), 'Editing')(e));
-    window.addEventListener('pointermove', e => { try { this.gesture?.move(e); } catch (err) { console.error(err); } });
+    window.addEventListener('pointermove', e => {
+      if (e.pointerId !== this.pointerId) return;
+      try { this.gesture?.move(e); } catch (err) { console.error(err); }
+    });
     window.addEventListener('pointerup', e => {
+      if (this.gesture && e.pointerId !== this.pointerId) return;
       const g = this.gesture;
       this.gesture = null;
+      this.pointerId = null;
       if (g) safe(() => g.up(e), 'Drawing')();
       else if (MARKUP.has(this.tool)) safe(() => this.finishMarkup(), 'Marking text')();
     });
-    window.addEventListener('pointercancel', () => { this.gesture?.cancel(); this.gesture = null; });
+    window.addEventListener('pointercancel', e => { if (e.pointerId === this.pointerId) this.cancel(); });
+    window.addEventListener('blur', () => this.cancel());
     this.applyMode();
   }
 
@@ -103,8 +122,24 @@ export class Tools {
   }
 
   setStyle(patch: Partial<ToolStyle>, t: Tool = this.tool) {
-    this.custom[t] = { ...this.custom[t], ...patch } as ToolStyle;
+    const next = { ...patch };
+    if (next.color) {
+      // Each colour remembers its own thickness and opacity, so a thin black pen and a thick
+      // yellow one are one click apart. The colour being left keeps what it had.
+      const was = this.style(t);
+      const wasKey = was.color.toLowerCase();
+      if (!this.byColour[t]?.[wasKey]) this.byColour[t] = { ...this.byColour[t], [wasKey]: { width: was.width, opacity: was.opacity } };
+      const kept = this.byColour[t]?.[next.color.toLowerCase()];
+      if (kept) Object.assign(next, kept, patch.width !== undefined ? { width: patch.width } : {}, patch.opacity !== undefined ? { opacity: patch.opacity } : {});
+    }
+    this.custom[t] = { ...this.custom[t], ...next } as ToolStyle;
+    if (next.color || next.width !== undefined || next.opacity !== undefined) {
+      const now = this.style(t);
+      this.byColour[t] = { ...this.byColour[t], [now.color.toLowerCase()]: { width: now.width, opacity: now.opacity } };
+      try { localStorage.setItem('pdfy.colourStyles', JSON.stringify(this.byColour)); } catch { /* Storage may be off. */ }
+    }
     try { localStorage.setItem('pdfy.styles', JSON.stringify(this.custom)); } catch { /* Storage may be off. */ }
+    this.syncCursor();
   }
 
   setTool(t: Tool) {
@@ -117,7 +152,24 @@ export class Tools {
     this.hooks.onTool?.(t);
   }
 
+  /** The pointer over the page while drawing: a cross, a dot, a circle the size of the pen, an arrow or nothing. */
+  syncCursor() {
+    const sc = this.viewer.scroller;
+    const kind = getSettings().pen.cursor;
+    sc.dataset.cursor = kind;
+    let css = 'crosshair';
+    if (kind === 'arrow') css = 'default';
+    else if (kind === 'none') css = 'none';
+    else if (kind === 'dot') css = cursorCircle(3, true);
+    else if (kind === 'size') {
+      const st = this.style();
+      css = cursorCircle(Math.max(3, Math.min(120, (st.width || 1) * this.viewer.scale)), false);
+    }
+    sc.style.setProperty('--draw-cursor', css);
+  }
+
   private applyMode() {
+    this.syncCursor();
     const t = this.tool;
     const mode = t === 'hand' ? 'hand'
       : t === 'select' ? 'select'
@@ -130,6 +182,7 @@ export class Tools {
   cancel() {
     this.gesture?.cancel();
     this.gesture = null;
+    this.pointerId = null;
     if (this.clickPts) { this.clickPts.node.remove(); this.clickPts = null; }
   }
 
@@ -193,14 +246,59 @@ export class Tools {
 
   // ---- Pointer down ----
 
+  /** Tools that put marks on the page, as opposed to choosing or moving. */
+  drawingTool(t: Tool = this.tool) { return !['select', 'hand', 'multiselect', 'lasso'].includes(t); }
+
+  /** Whether this kind of pointer should draw with the current tool, by the pen settings. */
+  drawsWith(pointerType: string) {
+    return this.drawingTool() && (getSettings().pen.drawWith === 'any' || pointerType === 'pen');
+  }
+
+  /** The last kind of pointer used on the page, shown in Settings to help set a tablet up. */
+  lastPointer = '';
+  /** After the pen's side button is used, the right-click menu it also sends is ignored. */
+  private noMenuUntil = 0;
+
   private down(e: PointerEvent) {
     const session = this.viewer.session;
-    if (!session || e.button !== 0) return;
+    if (!session) return;
+    this.lastPointer = e.pointerType;
+    const pen = getSettings().pen;
+    const isPen = e.pointerType === 'pen';
+    // The back of the pen erases, and the side button does what Settings says, whatever the tool.
+    let special: 'eraser' | 'select' | 'pan' | null = null;
+    if (isPen && pen.tailErases && (e.button === 5 || (e.buttons & 32) !== 0)) special = 'eraser';
+    else if (isPen && e.button === 2 && pen.sideButton !== 'menu') special = pen.sideButton;
+    if (e.button !== 0 && !special) return;
     const target = e.target as Element;
     if (target.closest('.image-bar, .inline-editor')) return;
+    // Drawing cancels the browser's own focus change, so a box used a moment ago (such as
+    // Thickness) would keep the keyboard and swallow the next shortcut. Hand it back to the page.
+    const focused = document.activeElement as HTMLElement | null;
+    if (focused && focused !== this.viewer.scroller && !this.viewer.scroller.contains(focused) && focused.matches('input, select, textarea, button, [contenteditable=true]')) {
+      this.viewer.scroller.focus({ preventScroll: true });
+    }
     this.commitEdit();
 
+    if (special) {
+      this.noMenuUntil = performance.now() + 1500;
+      if (special === 'pan') { this.startPan(e); return; }
+      const sv = this.viewAt(e);
+      if (!sv) return;
+      if (special === 'eraser') { this.startEraser(e, sv); return; }
+      // Selecting with the side button switches to Select, so what is chosen can be moved straight away.
+      if (this.tool !== 'select') this.setTool('select');
+      this.startMarquee(e, sv);
+      return;
+    }
     if (this.tool === 'hand') { this.startPan(e); return; }
+    // "Only the pen draws": the mouse moves the page instead, so a tablet pen and a mouse can share the work.
+    if (!isPen && e.pointerType === 'mouse' && pen.drawWith === 'pen' && this.drawingTool() && !MARKUP.has(this.tool)) { this.startPan(e); return; }
+    // The pen inks straight away in Read, while the mouse still selects.
+    if (isPen && pen.autoInk && this.tool === 'select' && !target.closest('[data-id], .sel-handle, .widgets *, .read-layer span')) {
+      const iv = this.viewAt(e);
+      if (iv) { this.startInk(e, iv, 'pen'); return; }
+    }
 
     const v = this.viewAt(e);
     if (!v) {
@@ -395,6 +493,8 @@ export class Tools {
       },
       up: () => {
         if (moved) this.viewer.session!.replaceAnnot(v.page, a, live, 'Move');
+        // A click that does not move a pinned file or voice note opens it.
+        else if (a.kind === 'attachment') this.hooks.openAttachment?.(a);
       },
       cancel: () => this.viewer.drawAnnots(v),
     };
@@ -527,34 +627,43 @@ export class Tools {
 
   // ---- Ink ----
 
-  private startInk(e: PointerEvent, v: PageView) {
+  private startInk(e: PointerEvent, v: PageView, t: Tool = this.tool) {
     e.preventDefault();
-    const st = this.style();
+    const st = this.style(t);
+    const smoothing = getSettings().pen.smoothing;
     const pts: number[] = [...this.pdfAt(v, e)];
+    const start: [number, number] = [pts[0], pts[1]];
     const node = s('path', { fill: 'none', stroke: st.color, 'stroke-width': st.width, opacity: st.opacity, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
     v.annotsG.append(node);
     let raf = 0;
     const redraw = () => { raf = 0; node.setAttribute('d', segsToSvg(smoothPath(pts))); };
     this.gesture = {
       move: m => {
-        const list = m.getCoalescedEvents?.() ?? [m];
-        for (const ev of (list.length ? list : [m])) {
-          const p = this.pdfAt(v, ev);
-          const dx = p[0] - pts[pts.length - 2], dy = p[1] - pts[pts.length - 1];
-          if (dx * dx + dy * dy * 1 > 0.04) pts.push(p[0], p[1]);
+        if (m.shiftKey) {
+          // Shift draws a straight line from where the stroke began.
+          const p = this.pdfAt(v, m);
+          pts.length = 0;
+          pts.push(start[0], start[1], p[0], p[1]);
+        } else {
+          const list = m.getCoalescedEvents?.() ?? [m];
+          for (const ev of (list.length ? list : [m])) {
+            const p = this.pdfAt(v, ev);
+            const dx = p[0] - pts[pts.length - 2], dy = p[1] - pts[pts.length - 1];
+            if (dx * dx + dy * dy * 1 > 0.04) pts.push(p[0], p[1]);
+          }
         }
         if (!raf) raf = requestAnimationFrame(redraw);
       },
       up: () => {
         cancelAnimationFrame(raf);
         node.remove();
-        const a = this.base('ink', this.tool);
-        const path = simplify(pts, 0.25);
+        const a = this.base('ink', t);
+        const path = simplify(smoothing === 'strong' ? average(pts) : pts, smoothing === 'off' ? 0.06 : smoothing === 'strong' ? 0.45 : 0.25);
         a.paths = [path];
         a.rect = pointsBounds(path, st.width / 2);
         this.add(v, a, 'Draw');
       },
-      cancel: () => node.remove(),
+      cancel: () => { cancelAnimationFrame(raf); node.remove(); },
     };
   }
 
@@ -1055,4 +1164,25 @@ function sampleColours(v: PageView, x0: number, y0: number, x1: number, y1: numb
   } catch {
     return { bg: '#ffffff', fg: '#000000' };
   }
+}
+
+/** A round pointer drawn as a picture: a dark ring with a light edge, so it shows on any page. */
+function cursorCircle(d: number, filled: boolean): string {
+  const size = Math.ceil(d + 6), c = size / 2, r = d / 2;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${size}' height='${size}'>`
+    + (filled ? `<circle cx='${c}' cy='${c}' r='${r}' fill='#111' stroke='#fff' stroke-width='1.5'/>`
+      : `<circle cx='${c}' cy='${c}' r='${r}' fill='none' stroke='#fff' stroke-width='3'/><circle cx='${c}' cy='${c}' r='${r}' fill='none' stroke='#111' stroke-width='1.2'/>${d > 14 ? `<circle cx='${c}' cy='${c}' r='1' fill='#111'/>` : ''}`)
+    + '</svg>';
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${Math.round(c)} ${Math.round(c)}, crosshair`;
+}
+
+/** Evens out a shaky stroke by averaging each point with its neighbours. */
+function average(pts: number[]): number[] {
+  if (pts.length < 8) return pts;
+  const out = [pts[0], pts[1]];
+  for (let i = 2; i < pts.length - 2; i += 2) {
+    out.push((pts[i - 2] + pts[i] * 2 + pts[i + 2]) / 4, (pts[i - 1] + pts[i + 1] * 2 + pts[i + 3]) / 4);
+  }
+  out.push(pts[pts.length - 2], pts[pts.length - 1]);
+  return out;
 }

@@ -19,17 +19,67 @@ export interface Settings {
   dictTab: 'quick' | 'cambridge' | 'oxford' | 'longman';
   /** The dictionary stays open at the side of the window. */
   dictDocked: boolean;
+  /** What the Pages button opens: the full-screen page editor or the narrow side list. */
+  pagesView: 'editor' | 'sidebar';
+  /** Size of the page pictures in the page editor, in pixels wide. */
+  editorThumb: number;
+  /** Pen and tablet. */
+  pen: PenSettings;
+  /** The mouse wheel zooms without holding Ctrl. */
+  wheelZooms: boolean;
+  /** The last guide version shown, so the guide appears once after each update. */
+  guideSeen: string;
 }
 
-const DEFAULTS: Settings = { author: 'PDFy user', reopenAtLastPage: true, lookup: false, mdTheme: 'obsidian-light', ocrLang: 'eng', prefSet: '', onlineDict: true, dictTab: 'cambridge', dictDocked: false };
+export interface PenSettings {
+  /** Who can draw: everything, or only a pen, so fingers and the mouse move the page. */
+  drawWith: 'any' | 'pen';
+  /** The pointer over the page while a drawing tool is chosen. */
+  cursor: 'cross' | 'dot' | 'size' | 'arrow' | 'none';
+  /** How much strokes are smoothed. */
+  smoothing: 'off' | 'light' | 'strong';
+  /** What the button on the side of the pen does while held. */
+  sideButton: 'menu' | 'eraser' | 'select' | 'pan';
+  /** The back end of the pen erases. */
+  tailErases: boolean;
+  /** Touching the page with the pen starts inking straight away, even in Read mode. */
+  autoInk: boolean;
+}
+
+export const DEFAULT_PEN: PenSettings = { drawWith: 'any', cursor: 'dot', smoothing: 'light', sideButton: 'eraser', tailErases: true, autoInk: false };
+
+const DEFAULTS: Settings = {
+  author: 'PDFy user', reopenAtLastPage: true, lookup: false, mdTheme: 'obsidian-light', ocrLang: 'eng', prefSet: '', onlineDict: true, dictTab: 'cambridge', dictDocked: false,
+  pagesView: 'editor', editorThumb: 200, pen: DEFAULT_PEN, wheelZooms: false, guideSeen: '',
+};
+
+// Read on every pointer move while drawing, so the parsed copy is kept until the stored text changes.
+let cached: { raw: string | null; value: Settings } | null = null;
 
 export function getSettings(): Settings {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; }
-  catch { return { ...DEFAULTS }; }
+  let raw: string | null = null;
+  try { raw = localStorage.getItem(KEY); } catch { /* Storage may be off. */ }
+  if (cached && cached.raw === raw) return cached.value;
+  let value: Settings;
+  try {
+    const saved = JSON.parse(raw ?? '{}') as Partial<Settings>;
+    value = { ...DEFAULTS, ...saved, pen: { ...DEFAULT_PEN, ...(saved.pen ?? {}) } };
+  } catch { value = { ...DEFAULTS }; }
+  cached = { raw, value };
+  return value;
 }
 
+const listeners = new Set<(s: Settings) => void>();
+/** Called after any setting changes, so screens can follow. */
+export function onSettings(fn: (s: Settings) => void): () => void { listeners.add(fn); return () => listeners.delete(fn); }
+
 export function saveSettings(patch: Partial<Settings>) {
-  try { localStorage.setItem(KEY, JSON.stringify({ ...getSettings(), ...patch })); } catch { /* Storage may be off. */ }
+  const next = { ...getSettings(), ...patch };
+  if (patch.pen) next.pen = { ...getSettings().pen, ...patch.pen };
+  const raw = JSON.stringify(next);
+  cached = { raw, value: next };
+  try { localStorage.setItem(KEY, raw); } catch { /* Storage may be off. */ }
+  for (const fn of listeners) { try { fn(next); } catch (err) { console.warn('Settings listener', err); } }
 }
 
 const POSITIONS = 'pdfy.positions';

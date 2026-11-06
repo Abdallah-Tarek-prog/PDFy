@@ -18,24 +18,32 @@ import { applySignature, createDigitalId, readDigitalId, type DigitalId } from '
 import { openDocxEditor } from './features/docx-editor';
 import { runOcr } from './features/ocr';
 import { printPdf } from './features/print';
-import { addRecent, dropJournal, listJournals, listRecent, loadAsset, rememberHandle, removeRecent, restoreAnnots, saveJournal, type Journal, type RecentFile } from './features/recovery';
+import { addRecent, dropJournal, listJournals, loadAsset, rememberHandle, restoreAnnots, saveJournal, type Journal } from './features/recovery';
 import { exportXfdf, importXfdf } from './features/xfdf';
 import { THEME_STYLES } from './theme/presets';
 import { alertDialog, askPassword, cameraDialog, confirmDialog, formDialog, openDialog, progressDialog, signatureDialog, type Field, type ProgressHandle } from './ui/dialogs';
 import { $, baseName, clear, downloadBlob, h, icon, parseRanges, pickFiles, reportError, safe, toast } from './ui/dom';
 import { ImageBar, pasteMode } from './ui/imagebar';
-import { getSettings, lastPage, rememberPage, saveSettings } from './core/settings';
+import { getSettings, lastPage, onSettings, rememberPage, saveSettings } from './core/settings';
 import { closeMenu, showMenu, type MenuItem } from './ui/menu';
 import { Study } from './study/ui';
 import { closeDictionary } from './study/dictpopup';
-import { closeWordLayer } from './study/readpicture';
+import { closeWordLayer, reattachWordLayer } from './study/readpicture';
 import { colourButton } from './ui/colorpicker';
 import { fontButton } from './ui/fontpicker';
+import { closeVoicePlayer, recordVoice, showVoicePlayer } from './ui/voice';
 import { Panels, type PanelId } from './ui/panels';
-import { closeDropdown, ToolRow, windowButtons, type ChromeHooks, type Cmd } from './ui/chrome';
+import { closeDropdown, showDropdown, ToolRow, windowButtons, type ChromeHooks, type Cmd } from './ui/chrome';
+import { createDocumentDialog, insertPageDialog, makePaperPdf } from './ui/createdoc';
+import { PageEditor } from './ui/pageeditor';
+import { Home } from './ui/home';
+import { openSettings, type SettingsSection } from './ui/settings';
+import { maybeShowGuide, showGuide } from './ui/guide';
+import { addClosed, listClosed, removeClosed } from './features/library';
 import { keyLabel, match, shortcutsDialog } from './ui/shortcuts';
 import { applyUiTheme, currentUiTheme, DEFAULT_DARK, DEFAULT_LIGHT, UI_THEMES } from './ui/themes';
 import { Tools, type Tool } from './view/tools';
+import { installGestures } from './view/gestures';
 import { toScreen, viewportFor } from './core/model';
 import { Viewer, type PageView } from './view/viewer';
 
@@ -50,23 +58,38 @@ export class App {
   viewer!: Viewer;
   tools!: Tools;
   panels!: Panels;
+  pageEditor!: PageEditor;
   imageBar!: ImageBar;
 
   private tabsEl = h('div', { class: 'doc-tabs', role: 'tablist' });
   private styleBar = h('div', { class: 'style-bar', 'aria-label': 'Style' });
   private startEl = h('div', { class: 'start' });
+  home!: Home;
+  /** The Home screen is showing over the open documents. */
+  private showingHome = false;
+  private homeBtn = h('button', { class: 'icon-btn tab-home', title: 'Home: recent files, recently closed and collections', 'aria-label': 'Home', onclick: () => this.toggleHome() }, icon('home', 15));
   private pageInput = h('input', { class: 'page-input', 'aria-label': 'Page number', inputmode: 'numeric' });
   private pageTotal = h('span', null, '');
+  private bookmarkBtn = h('button', { class: 'icon-btn small bm-toggle', 'aria-label': 'Bookmark this page', onclick: () => this.toggleBookmark() }, icon('bookmark', 14));
   private zoomInput = h('input', { class: 'zoom-input', 'aria-label': 'Zoom', inputmode: 'numeric' });
   private memEl = h('span', { title: 'Memory the page is using right now' });
   private statusMsg = h('div', { class: 'status-pill', role: 'status', hidden: true });
   /** A short tip for the current tool, at the bottom, so it never covers the page. */
   private hintEl = h('div', { class: 'status-pill hint', role: 'note', hidden: true });
   private titleText = h('div', { class: 'title-text' });
+  /** The + at the end of the document tabs: open a file or create a new document. */
+  private addBtn: HTMLButtonElement = h('button', {
+    class: 'icon-btn tab-add', title: 'Open or create a document', 'aria-label': 'Open or create a document',
+    onclick: () => showDropdown(this.addBtn, { sections: [{ name: 'New tab', items: [
+      { icon: 'open', label: 'Browse file', title: 'Open a PDF, picture or Office file', key: 'open', run: () => this.openDialog() },
+      { icon: 'newDoc', label: 'Create document', title: 'Blank, lined, grid or dotted pages, or a PDF from pictures', key: 'new', run: () => this.createDocument() },
+    ] }] }, this.chromeHooks),
+  }, icon('plus', 15));
   private chromeHooks: ChromeHooks = { hasDoc: () => !!this.session, keyFor: id => keyLabel(id) };
   private row = new ToolRow(this.chromeHooks, 'Tools');
   private cmd!: Record<string, Cmd>;
   private journalTimer = 0;
+  private formNoticed = new WeakSet<Session>();
   private journalOff = new Map<Session, () => void>();
   private clip: { annots: Annot[]; pageId: string } | null = null;
   private stampLabel = 'APPROVED';
@@ -81,6 +104,9 @@ export class App {
     this.viewer = new Viewer(viewerEl);
     this.tools = new Tools(this.viewer);
     this.panels = new Panels(this);
+    this.pageEditor = new PageEditor(this);
+    this.home = new Home(this);
+    this.startEl.append(this.home.el);
     this.imageBar = new ImageBar(this.viewer, () => this.deleteSelection(), () => {
       this.cropTarget = this.viewer.selection;
       this.tools.setTool('crop-image');
@@ -97,19 +123,20 @@ export class App {
           h('button', { class: 'icon-btn', title: 'Light or dark interface', 'aria-label': 'Switch light or dark', onclick: () => this.toggleUiTheme() }, icon('contrast', 15))),
         windowButtons()),
       h('div', { class: 'toolbar' }, this.row.el),
-      h('div', { class: 'tabstrip' }, this.tabsEl,
-        h('button', { class: 'icon-btn tab-add', title: `Open (${keyLabel('open')})`, 'aria-label': 'Open a document', onclick: safe(() => this.openDialog(), 'Opening') }, icon('plus', 15))),
+      h('div', { class: 'tabstrip' }, this.homeBtn, this.tabsEl,
+        this.addBtn),
       h('main', { class: 'workspace' }, this.panels.host, h('div', { class: 'stage' }, viewerEl, this.startEl, this.styleBar,
         h('div', { class: 'page-pill', role: 'group', 'aria-label': 'Page' },
           h('button', { class: 'icon-btn small', title: 'Previous page', 'aria-label': 'Previous page', onclick: () => this.viewer.goTo(this.viewer.current - 1) }, icon('chevLeft', 14)),
           this.pageInput, h('span', { class: 'of' }, '/'), this.pageTotal,
-          h('button', { class: 'icon-btn small', title: 'Next page', 'aria-label': 'Next page', onclick: () => this.viewer.goTo(this.viewer.current + 1) }, icon('chevRight', 14))),
+          h('button', { class: 'icon-btn small', title: 'Next page', 'aria-label': 'Next page', onclick: () => this.viewer.goTo(this.viewer.current + 1) }, icon('chevRight', 14)),
+          h('span', { class: 'pill-sep' }), this.bookmarkBtn),
         h('div', { class: 'zoom-pill', role: 'group', 'aria-label': 'Zoom' },
           h('button', { class: 'icon-btn small', title: 'Fit width', 'aria-label': 'Fit width', onclick: () => this.viewer.setFit('width') }, icon('fitWidth', 14)),
           h('button', { class: 'icon-btn small', title: `Zoom out (${keyLabel('zoom-out')})`, 'aria-label': 'Zoom out', onclick: () => this.zoomBy(0.85) }, icon('zoomOut', 14)),
           this.zoomInput,
           h('button', { class: 'icon-btn small', title: `Zoom in (${keyLabel('zoom-in')})`, 'aria-label': 'Zoom in', onclick: () => this.zoomBy(1.18) }, icon('zoomIn', 14))),
-        this.hintEl, this.statusMsg)),
+        this.hintEl, this.statusMsg), this.pageEditor.el),
     );
 
     this.setMode('view');
@@ -118,7 +145,7 @@ export class App {
     this.buildSelBar();
     this.refresh();
     void this.drawStart();
-    void this.checkRecovery();
+    void this.checkRecovery().catch(err => console.warn('Recovery', err)).finally(() => void maybeShowGuide());
     setInterval(() => this.updateMemory(), 3000);
   }
 
@@ -126,10 +153,13 @@ export class App {
 
   private wire() {
     const v = this.viewer;
-    v.hooks.onScale = s => { this.zoomInput.value = `${Math.round(s * 100)}%`; this.imageBar.sync(); };
+    v.hooks.onScale = s => { this.zoomInput.value = `${Math.round(s * 100)}%`; this.imageBar.sync(); this.tools.syncCursor(); };
+    installGestures(v, { drawsWith: type => this.tools.drawsWith(type), cancelDrawing: () => this.tools.cancel() });
+    onSettings(() => { this.tools.syncCursor(); this.syncRibbon(); });
     v.hooks.onPage = i => {
       this.pageInput.value = String(i + 1);
       this.panels.change('page');
+      this.syncBookmarks();
       const s = this.session;
       if (s?.handle) {
         clearTimeout(this.pageTimer);
@@ -137,7 +167,12 @@ export class App {
       }
     };
     v.hooks.drawMatches = pv => this.drawMatchesOn(pv);
-    v.hooks.onMounted = pv => { this.drawMatchesOn(pv); this.imageBar.sync(); };
+    v.hooks.onMounted = pv => {
+      this.drawMatchesOn(pv);
+      this.imageBar.sync();
+      reattachWordLayer(pv);
+      pv.el.classList.toggle('bookmarked', !!this.session?.bookmarks.some(b => b.pageId === pv.page.id));
+    };
     this.tools.hooks = {
       onTool: () => this.syncRibbon(),
       onSelection: () => this.onSelection(),
@@ -174,6 +209,13 @@ export class App {
     });
 
     document.addEventListener('paste', e => safe((ev: ClipboardEvent) => this.onPaste(ev), 'Pasting')(e));
+    // The first time a document turns out to hold a form, say how to fill it in.
+    document.addEventListener('pdfy-form-found', () => {
+      const s = this.session;
+      if (!s || this.formNoticed.has(s)) return;
+      this.formNoticed.add(s);
+      toast(this.mode === 'edit' ? 'This PDF has a form. Press Escape to go back to Read, then click a field to fill it in.' : 'This PDF has a form. Click a field to fill it in. Save keeps what you typed.', 'info', 6000);
+    });
     document.addEventListener('keydown', e => safe((ev: KeyboardEvent) => this.onKey(ev), 'That shortcut')(e));
     document.addEventListener('dragover', e => {
       if ([...(e.dataTransfer?.types ?? [])].includes('Files')) { e.preventDefault(); document.body.classList.add('drag-over'); }
@@ -194,8 +236,13 @@ export class App {
 
   authorName(): string { return getSettings().author; }
 
-  async settingsDialog() {
-    await this.study.preferencesDialog();
+  async settingsDialog(section?: SettingsSection) {
+    await openSettings(this, section);
+  }
+
+  /** The illustrated tour. Opens by itself the first time and after each update. */
+  async showGuide() {
+    await showGuide();
   }
 
   /** Something the study tools changed needs showing again. */
@@ -289,18 +336,23 @@ export class App {
     const C: Record<string, Cmd> = {
       // Files
       open: act('open', 'Open', () => this.openDialog(), 'Open a PDF, image or Office file', false, { key: 'open' }),
-      new: act('file', 'New', () => this.newDocument(), 'New blank document', false, { key: 'new' }),
+      new: act('newDoc', 'New', () => this.createDocument(), 'Create a document: blank, lined, grid or dotted pages, or a PDF from pictures', false, { key: 'new', aka: ['Create document'] }),
       save: act('save', 'Save', () => this.save(), undefined, true, { key: 'save' }),
       saveAs: act('saveas', 'Save as', () => this.save(true), 'Save a copy', true, { key: 'save-as' }),
       print: act('print', 'Print', () => this.print(), undefined, true, { key: 'print' }),
       undo: act('undo', 'Undo', () => this.session?.undo(), undefined, true, { key: 'undo', off: () => !this.session?.canUndo }),
       redo: act('redo', 'Redo', () => this.session?.redo(), undefined, true, { key: 'redo', off: () => !this.session?.canRedo }),
       // Modes
-      editMode: act('edit', 'Edit', () => this.setMode(this.mode === 'edit' ? 'view' : 'edit'), 'Markup and drawing tools', true, { key: 'edit-mode', on: () => this.mode === 'edit' }),
-      studyMode: act('study', 'Study', () => this.setMode(this.mode === 'study' ? 'view' : 'study'), 'Dictionary, reading pictures, Markdown notes, equations', true, { on: () => this.mode === 'study' }),
+      editMode: act('edit', 'Edit', () => this.setMode(this.mode === 'edit' ? 'view' : 'edit'), 'Markup, drawing, Markdown notes, equations and word lookup', true, { key: 'edit-mode', on: () => this.mode === 'edit', aka: ['Study'] }),
       closeMode: act('winClose', 'Close', () => this.setMode('view'), 'Back to reading (Escape)', false),
       // Panels
-      pagesPanel: panel('thumbs', 'thumbs', 'Pages', 'Page thumbnails: click to jump, drag to reorder'),
+      pagesPanel: {
+        icon: 'thumbs', label: 'Pages', title: 'Arrange pages: rotate, delete, insert and drag to reorder', needsDoc: false,
+        on: () => !!this.session && (this.pageEditor.isOpen || this.panels.active === 'thumbs'),
+        run: () => { if (getSettings().pagesView === 'sidebar') this.panels.toggle('thumbs'); else this.pageEditor.toggle(); },
+      },
+      bookmarksPanel: panel('bookmarks', 'bookmark', 'Bookmarks', 'Your bookmarks in this document', 'bookmarks'),
+      bookmarkPage: act('bookmarkAdd', 'Bookmark page', () => this.toggleBookmark(), 'Bookmark this page, or remove its bookmark', true, { key: 'bookmark', on: () => this.isBookmarked() }),
       outlinePanel: panel('outline', 'outline', 'Outline', 'Table of contents and bookmarks'),
       commentsPanel: panel('comments', 'comments', 'Comments', 'Every comment and markup in the document'),
       searchPanel: panel('search', 'search', 'Search', 'Find words in the document', 'find'),
@@ -350,23 +402,30 @@ export class App {
       fieldSign: tool('field-signature', 'signature', 'Signature field'),
       detectFields: act('search', 'Detect fields', () => this.detectFieldsCmd(), 'Find blank lines and boxes and turn them into fields'),
       flattenForms: act('flatten', 'Flatten forms', () => this.flatten(false, true), 'Make form values part of the page'),
+      formsHelp: act('info', 'How forms work', () => this.formsHelp(), 'Filling in a form, and making your own', false),
       // Study tools
       lookup: act('book', 'Word lookup', () => this.study.toggleLookup(), 'When on, double-click or select a word to see its meaning, sound and Arabic', false, { key: 'lookup-toggle', on: () => this.study.lookupOn }),
       readPicture: tool('read-picture', 'ocr', 'Read picture', 'read-picture', 'Drag over an image or scan, then click any word in it'),
-      markdown: tool('markdown', 'markdown', 'Markdown note', 'markdown', 'Click on the page and type Markdown. It formats when you click away'),
+      markdown: tool('markdown', 'markdown', 'Markdown', 'markdown', 'Markdown note: click on the page and type Markdown. It formats when you click away', ['Markdown note']),
       equation: act('sigma', 'Equation', () => this.study.insertEquation(), 'Write an equation in LaTeX, with a live preview', true, { key: 'equation' }),
       pasteImage: act('paste', 'Paste image', () => this.pasteFromClipboard(), 'Paste a copied picture (Ctrl+V)', false),
       themeSnip: tool('snip', 'snip', 'Theme snip', undefined, 'Drag over any area of a page to turn it light or dark'),
       pageTheme: act('pageTheme', 'Page theme', () => this.convertPagesDialog(), 'Turn whole pages light or dark'),
       allImages: act('contrast', 'All images', () => this.convertAllDialog(), 'Convert every image in this document'),
       noteThemes: act('palette', 'Note themes', () => this.study.themesDialog(), 'Fonts, colours and spacing for Markdown notes', false),
-      prefs: act('settings', 'Preferences', () => this.settingsDialog(), 'One-click preference sets, and every other setting', false),
+      prefs: act('settings', 'Settings', () => this.settingsDialog(), 'Appearance, pen and tablet, study tools, files and every other setting', false, { aka: ['Preferences'] }),
+      home: act('home', 'Home', () => this.toggleHome(), 'Recent files, recently closed and collections', false),
+      addToCollection: act('folder', 'Add to collection', () => this.addToCollection(), 'Keep this document in a collection on the Home screen'),
+      reopenClosed: act('history', 'Reopen closed', () => this.reopenClosed(), 'Open the document you closed last', false, { key: 'reopen-closed' }),
+      guide: act('guide', 'Feature guide', () => this.showGuide(), 'A short tour of what PDFy can do', false),
       // Pages
       rotL: act('rotL', 'Rotate left', () => this.rotatePages(-90)),
       rotR: act('rotR', 'Rotate right', () => this.rotatePages(90)),
       delPages: act('trash', 'Delete', () => this.deletePages(), 'Delete the chosen pages'),
       dupPages: act('copy', 'Duplicate', () => this.duplicatePages(), 'Duplicate the chosen pages'),
       blank: act('plus', 'Blank page', () => this.insertBlank()),
+      insertPage: act('newDoc', 'Insert pages', () => this.insertPagesDialog(), 'Blank, lined, grid, dotted or other paper, in any size'),
+      pageEditor: act('grid', 'Page editor', () => this.pageEditor.open(), 'All pages full screen: select, rotate, delete, insert and drag to reorder'),
       fromFile: act('insertFile', 'From file', () => this.insertFromFile(), 'Insert pages from a PDF or image after this page'),
       merge: act('merge', 'Merge', () => this.mergeFiles(), 'Add other PDFs to the end', false),
       extract: act('extract', 'Extract', () => this.extractPages(), 'Save some pages as a new file'),
@@ -429,10 +488,10 @@ export class App {
       icon: 'actions', label: 'Actions', title: 'Every document tool in one place, with search', key: 'actions', needsDoc: false,
       menu: () => ({
         search: true, wide: true, sections: [
-          { name: 'Pages', items: [C.rotL, C.rotR, C.delPages, C.dupPages, C.blank, C.fromFile, C.merge, C.extract, C.split, C.crop, C.numbers, C.headerFooter, C.watermark, C.bates] },
+          { name: 'Pages', items: [C.pageEditor, C.rotL, C.rotR, C.delPages, C.dupPages, C.blank, C.insertPage, C.fromFile, C.merge, C.extract, C.split, C.crop, C.numbers, C.headerFooter, C.watermark, C.bates] },
           { name: 'Convert', items: [C.toImages, C.toText, C.toHtml, C.toWord, C.toExcel, C.toPpt, C.wordEditor, C.imagesToPdf, C.officeToPdf, C.webToPdf, C.scan, C.convertImage, C.ocr] },
           { name: 'Protect and sign', items: [C.addPassword, C.removePassword, C.certSign, C.createId, C.findRedact, C.applyRedact, C.cleanMeta, C.properties, C.check, C.pdfa] },
-          { name: 'Forms', items: [C.fieldText, C.fieldCheck, C.fieldRadio, C.fieldDropdown, C.fieldList, C.fieldSign, C.detectFields, C.flattenForms] },
+          { name: 'Forms', items: [C.fieldText, C.fieldCheck, C.fieldRadio, C.fieldDropdown, C.fieldList, C.fieldSign, C.detectFields, C.flattenForms, C.formsHelp] },
           { name: 'Tools', items: [C.compress, C.flatten, C.compare, C.textCompare, C.batch, C.exportNotes, C.importNotes, C.pageTheme, C.allImages] },
         ],
       }),
@@ -450,43 +509,45 @@ export class App {
       }),
     };
     C.moreMenu = {
-      icon: 'more', label: 'More', title: 'Preferences, shortcuts and more', needsDoc: false,
-      menu: () => ({ sections: [{ name: 'PDFy', items: [C.new, C.prefs, C.noteThemes, C.shortcuts, C.about] }] }),
+      icon: 'more', label: 'More', title: 'Home, collections, settings, shortcuts and the guide', needsDoc: false,
+      menu: () => ({ sections: [{ name: 'PDFy', items: [C.new, C.home, C.addToCollection, C.reopenClosed, C.prefs, C.noteThemes, C.shortcuts, C.guide, C.about] }] }),
     };
     C.measureMenu = { icon: 'measure', label: 'Measure', title: 'Distance, perimeter and area', needsDoc: true, on: () => ['distance', 'perimeter', 'area'].includes(this.tools.tool), menu: () => ({ sections: [{ name: 'Measure', items: [C.distance, C.perimeter, C.area, C.scale] }] }) };
     C.shapesMenu = { icon: 'shapes', label: 'Shapes', title: 'Polygon, polyline and cloud', needsDoc: true, aka: ['Shape to...'], on: () => ['polygon', 'polyline', 'cloud'].includes(this.tools.tool), menu: () => ({ sections: [{ name: 'Shapes', items: [C.polygon, C.polyline, C.cloud] }] }) };
     C.redactMenu = { icon: 'redact', label: 'Redaction', title: 'Remove text and pictures for good', needsDoc: true, on: () => ['redact', 'whiteout'].includes(this.tools.tool), menu: () => ({ sections: [{ name: 'Redaction', items: [C.markRedact, C.findRedact, C.applyRedact, C.whiteout] }] }) };
+    C.imageMenu = { icon: 'contrast', label: 'Image theme', title: 'Paste a picture and turn it light or dark', needsDoc: true, aka: ['Theme'], on: () => this.tools.tool === 'snip', menu: () => ({ sections: [{ name: 'Pictures and themes', items: [C.pasteImage, C.themeSnip, C.pageTheme, C.allImages] }] }) };
     C.insertMenu = { icon: 'plus', label: 'Insert', title: 'Links, files and voice notes', needsDoc: true, menu: () => ({ sections: [{ name: 'Insert', items: [C.link, C.attach, C.voice, C.pasteImage, C.stamper] }] }) };
-    C.formsMenu = { icon: 'forms', label: 'Forms', title: 'Form fields', needsDoc: true, on: () => this.tools.tool.startsWith('field-'), menu: () => ({ sections: [{ name: 'Form fields', items: [C.fieldText, C.fieldCheck, C.fieldRadio, C.fieldDropdown, C.fieldList, C.fieldSign, C.detectFields, C.flattenForms] }] }) };
+    C.formsMenu = { icon: 'forms', label: 'Forms', title: 'Make form fields. Fill them in from Read', needsDoc: true, on: () => this.tools.tool.startsWith('field-'), menu: () => ({ sections: [{ name: 'Make form fields', items: [C.fieldText, C.fieldCheck, C.fieldRadio, C.fieldDropdown, C.fieldList, C.fieldSign] }, { name: 'More', items: [C.detectFields, C.flattenForms, C.formsHelp] }] }) };
     return C;
   }
 
-  mode: 'view' | 'edit' | 'study' = 'view';
+  mode: 'view' | 'edit' = 'view';
 
-  /** The toolbar for each mode. Edit follows Xodo's annotation bar, tool for tool. */
-  private layoutFor(mode: 'view' | 'edit' | 'study'): { left: (Cmd | '|')[]; right: (Cmd | '|')[] } {
+  /**
+   * The toolbar for each mode. Edit follows Xodo's annotation bar, with PDFy's study tools placed
+   * beside the text tools, because notes and look-ups are made while marking up.
+   */
+  private layoutFor(mode: 'view' | 'edit'): { left: (Cmd | '|')[]; right: (Cmd | '|')[] } {
     const C = this.cmd;
     if (mode === 'edit') {
       return {
-        left: [C.closeMode, '|', C.sticky, C.highlight, C.underline, C.strikeout, C.squiggly, '|', C.stamper, C.rubberStamp, C.signature, '|', C.ink, C.eraser, C.marker, C.textBox, C.callout, '|',
-          C.square, C.oval, C.line, C.arrow, C.measureMenu, C.shapesMenu, '|', C.multiselect, C.lasso, C.redactMenu, C.insertMenu, C.formsMenu, C.editText, C.pan],
-        right: [C.undo, C.redo],
-      };
-    }
-    if (mode === 'study') {
-      return {
-        left: [C.closeMode, '|', C.lookup, C.readPicture, C.markdown, C.equation, '|', C.pasteImage, C.themeSnip, C.pageTheme, C.allImages, '|', C.noteThemes, C.prefs],
+        left: [C.closeMode, '|', C.sticky, C.highlight, C.underline, C.strikeout, C.squiggly, '|', C.ink, C.eraser, C.marker, C.textBox, C.callout, '|',
+          C.markdown, C.equation, C.readPicture, C.lookup, '|', C.square, C.oval, C.line, C.arrow, C.measureMenu, C.shapesMenu, '|',
+          C.imageMenu, C.stamper, C.rubberStamp, C.signature, '|', C.multiselect, C.lasso, C.redactMenu, C.insertMenu, C.formsMenu, C.editText, C.pan],
         right: [C.undo, C.redo],
       };
     }
     return {
       left: [C.open, C.save, C.saveAs, C.print, '|', C.actions],
-      right: [C.undo, C.redo, '|', C.editMode, C.studyMode, '|', C.pagesPanel, C.outlinePanel, C.commentsPanel, C.searchPanel, '|', C.viewMenu, C.moreMenu],
+      right: [C.undo, C.redo, '|', C.editMode, '|', C.pagesPanel, C.outlinePanel, C.bookmarksPanel, C.commentsPanel, C.searchPanel, '|', C.viewMenu, C.moreMenu],
     };
   }
 
-  setMode(mode: 'view' | 'edit' | 'study') {
+  /** 'study' is the old name for Edit, from when the study tools had their own toolbar. */
+  setMode(asked: 'view' | 'edit' | 'study') {
+    const mode = asked === 'study' ? 'edit' : asked;
     closeDropdown();
+    if (mode === 'edit') this.pageEditor?.close();
     if (mode !== this.mode) {
       this.tools.finishClickShape();
       if (this.tools.tool !== 'select' && this.tools.tool !== 'hand') this.tools.setTool('select');
@@ -515,7 +576,7 @@ export class App {
     const visible = (root: ParentNode) => [...root.querySelectorAll<HTMLButtonElement>('.tb-btn, .dd-item')]
       .find(b => !b.hidden && b.offsetParent !== null && (b.dataset.label === label || (b.dataset.aka ?? '').split('|').includes(label))) ?? null;
     const tick = () => new Promise(r => setTimeout(r, 0));
-    for (const mode of [this.mode, 'view', 'edit', 'study'] as const) {
+    for (const mode of [this.mode, 'view', 'edit'] as const) {
       if (mode !== this.mode) this.setMode(mode);
       await tick();
       const direct = visible(this.row.el);
@@ -581,6 +642,12 @@ export class App {
       'read-picture': 'Drag over an image, a scan or any part of the page. Each word found can then be clicked.',
       markdown: 'Click on the page, then type. It turns into formatted notes when you click away.',
       polygon: 'Click each corner. Double-click or press Enter to finish.',
+      'field-text': 'Drag a box where the text field goes, then name it. Press Escape to go back to Read and type in it.',
+      'field-check': 'Drag a small box for the tick box, then name it. In Read, click it to tick.',
+      'field-radio': 'Drag a small box for this choice. Give choices of one question the same name.',
+      'field-dropdown': 'Drag a box, then type the choices, one per line. In Read, click it to choose.',
+      'field-list': 'Drag a box, then type the choices, one per line. In Read, several can be chosen.',
+      'field-signature': 'Drag where the signature should go. Others can sign there in their PDF app.',
       polyline: 'Click each point. Double-click or press Enter to finish.',
       cloud: 'Click each corner. Double-click or press Enter to finish.',
       perimeter: 'Click each point. Double-click or press Enter to finish.',
@@ -704,7 +771,8 @@ export class App {
     for (const s of this.sessions) {
       this.tabsEl.append(h('div', {
         class: `doc-tab${s === this.session ? ' active' : ''}`, role: 'tab', 'aria-selected': String(s === this.session), tabindex: 0, title: s.name,
-        onclick: () => this.activate(s),
+        onclick: () => { this.hideHome(); this.activate(s); },
+        oncontextmenu: (e: MouseEvent) => { e.preventDefault(); this.tabMenu(e, s); },
       },
       s.dirty ? h('span', { class: 'dot', title: 'Unsaved changes' }) : null,
       h('span', { class: 'name' }, s.name),
@@ -714,7 +782,11 @@ export class App {
 
   private refresh() {
     const s = this.session;
-    this.startEl.hidden = !!s;
+    if (!s) this.showingHome = false;
+    this.startEl.hidden = !!s && !this.showingHome;
+    // Home fills the whole area, so the side lists step aside while it shows.
+    this.panels.host.classList.toggle('behind-home', !this.startEl.hidden);
+    this.homeBtn.classList.toggle('active', !this.startEl.hidden);
     this.viewer.scroller.style.visibility = s ? 'visible' : 'hidden';
     this.drawTabs();
     this.syncRibbon();
@@ -722,6 +794,8 @@ export class App {
     this.pageTotal.textContent = s ? String(s.pages.length) : '–';
     this.pageInput.disabled = !s;
     this.zoomInput.disabled = !s;
+    this.bookmarkBtn.disabled = !s;
+    this.syncBookmarks();
     document.title = s ? `${s.name}${s.dirty ? ' •' : ''} – PDFy` : 'PDFy';
     this.titleText.textContent = s ? `${s.name}${s.dirty ? ' •' : ''}` : '';
     this.updateMemory();
@@ -729,13 +803,14 @@ export class App {
 
   private updateMemory() {
     const m = performance.memory;
-    const parts: string[] = [];
-    if (m) parts.push(`Memory ${Math.round(m.usedJSHeapSize / 1048576)} MB`);
-    if (this.session) parts.push(`${this.viewer.views.size} pages loaded`);
-    this.memEl.textContent = parts.join(' · ');
+    const mb = m ? Math.round(m.usedJSHeapSize / 1048576) : 0;
+    const pages = this.viewer.views.size;
+    this.memEl.textContent = m && this.session ? `PDFy is using ${mb} MB of memory, with ${pages} page${pages === 1 ? '' : 's'} drawn.`
+      : m ? `PDFy is using ${mb} MB of memory.` : '';
   }
 
   add(session: Session) {
+    this.showingHome = false;
     this.sessions.push(session);
     this.journalOff.set(session, session.on(c => {
       if (session === this.session) {
@@ -758,9 +833,11 @@ export class App {
     this.tools.commitEdit();
     closeWordLayer();
     closeDictionary();
+    closeVoicePlayer();
     this.session = session;
     this.viewer.attach(session);
     this.panels.attach(session);
+    this.pageEditor.attach();
     this.imageBar.sync();
     this.refresh();
     if (session) this.zoomInput.value = `${Math.round(this.viewer.scale * 100)}%`;
@@ -788,6 +865,7 @@ export class App {
         if (!ok) return;
       }
     }
+    if (session.handle) await addClosed(session.name, session.handle, session === this.session ? this.viewer.current : lastPage(`${session.name}:${session.pages.length}`), session.pages.length);
     const i = this.sessions.indexOf(session);
     this.sessions.splice(i, 1);
     this.journalOff.get(session)?.();
@@ -829,12 +907,14 @@ export class App {
     for (const f of files) await this.openFile(f);
   }
 
-  async openHandle(handle: FileSystemFileHandle) {
+  async openHandle(handle: FileSystemFileHandle, page?: number) {
     let file: File;
     try { file = await handle.getFile(); }
     catch { toast(`"${handle.name}" could not be read. It may have moved.`, 'error'); return; }
     rememberHandle(file, handle);
+    this.hideHome();
     await this.openFile(file, handle);
+    if (page !== undefined && this.session?.handle && this.session.name === handle.name && page < this.session.pages.length) this.viewer.goTo(page);
   }
 
   async openFile(file: File, handle: FileSystemFileHandle | null = null) {
@@ -850,8 +930,13 @@ export class App {
   }
 
   async openPdfBlob(blob: Blob, name: string, handle: FileSystemFileHandle | null = null): Promise<Session | null> {
-    const existing = handle && this.sessions.find(s => s.name === name && s.handle && !s.dirty);
-    if (existing) { this.activate(existing); return existing; }
+    if (handle) {
+      for (const existing of this.sessions) {
+        if (!existing.handle) continue;
+        const sameFile = existing.handle === handle || await existing.handle.isSameEntry(handle).catch(() => false);
+        if (sameFile) { this.hideHome(); this.activate(existing); return existing; }
+      }
+    }
     const session = new Session(name);
     session.handle = handle;
     try {
@@ -865,6 +950,7 @@ export class App {
     } finally {
       this.setStatus('');
     }
+    await this.importBookmarks(session);
     this.add(session);
     if (handle) {
       void addRecent(name, handle, session.pages.length);
@@ -881,6 +967,50 @@ export class App {
     s.pages = [s.blankPage(595, 842)];
     this.add(s);
     return s;
+  }
+
+  /** The Create document window, then the new document opens in its own tab. */
+  async createDocument() {
+    const r = await createDocumentDialog();
+    if (!r) return;
+    const name = /\.pdf$/i.test(r.title) ? r.title : `${r.title}.pdf`;
+    if (r.kind === 'blank') {
+      const s = await this.openPdfBlob(makePaperPdf(r), name);
+      if (s) { s.dirty = true; s.emit({ kind: 'meta' }); }
+      return;
+    }
+    const s = new Session(name);
+    const pages: PageRef[] = [];
+    await this.withProgress('Making the PDF', async p => {
+      for (let i = 0; i < r.files.length; i++) {
+        if (p.cancelled()) break;
+        p.set(i / r.files.length, `Picture ${i + 1} of ${r.files.length}`);
+        try { pages.push(await this.imagePage(s, r.files[i], r.fit === 'image' ? null : r.fit, r.margin)); }
+        catch { toast(`${r.files[i].name} could not be read.`, 'error'); }
+      }
+    });
+    if (!pages.length) { await s.close(); return; }
+    s.pages = pages;
+    s.dirty = true;
+    this.add(s);
+    toast(`Made ${pages.length} page${pages.length > 1 ? 's' : ''}. Press Save to keep them.`, 'ok');
+  }
+
+  /** New pages of any paper, from the page editor's + button or the Pages menu. */
+  async insertPagesDialog(at = this.viewer.current) {
+    const s = this.session;
+    if (!s) return;
+    const cur = s.pages[Math.min(at, s.pages.length - 1)];
+    const vp = cur ? viewportFor(cur, 1) : { width: 595, height: 842 };
+    const r = await insertPageDialog({ w: vp.width, h: vp.height }, at + 1);
+    if (!r) return;
+    const added = await s.addSource(makePaperPdf({ title: 'Pages', ...r }), 'New pages.pdf');
+    const pos = r.where === 'end' ? s.pages.length : r.where === 'before' ? at : at + 1;
+    const next = [...s.pages];
+    next.splice(pos, 0, ...added);
+    s.setPages(next, added.length > 1 ? 'Insert pages' : 'Insert page');
+    this.viewer.goTo(pos);
+    toast(`Added ${added.length} page${added.length > 1 ? 's' : ''}.`, 'ok');
   }
 
   private async onDrop(e: DragEvent) {
@@ -1107,9 +1237,11 @@ export class App {
 
   private onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
-    const typing = target.closest?.('input, textarea, select, [contenteditable=true]');
+    // Only boxes that take typed letters block the one-letter shortcuts. A Thickness number box,
+    // a drop-down or a tick box still lets I pick the pen.
+    const field = target.closest?.('input, textarea, select, [contenteditable=true]');
+    const typing = !!field && field.matches('textarea, [contenteditable=true], input:not([type=number]):not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=button])');
     const ctrl = e.ctrlKey || e.metaKey;
-    const k = e.key.toLowerCase();
     if (document.querySelector('.overlay-bg')) return;
 
     // Ctrl+1 to 9 jumps to that document, as in Xodo.
@@ -1120,12 +1252,16 @@ export class App {
     }
     const sc = match(e);
     const printable = !ctrl && !e.altKey && !/^F\d{1,2}$/.test(e.code) && !['Escape', 'Tab'].includes(e.key);
-    if (sc && (!typing || (sc.global && !printable))) {
+    // A Thickness box or a drop-down lets the one-letter tool keys through (I for the pen), but not
+    // editing keys such as Ctrl+Z or Ctrl+X, which must not act on the document from inside a box.
+    const allowed = !field || (!typing && (!ctrl || sc?.global)) || (typing && sc?.global && !printable);
+    if (sc && allowed) {
       e.preventDefault();
       safe(() => this.runShortcut(sc.id), sc.label)();
       return;
     }
-    if (typing) return;
+    // Delete, the arrows and Space belong to whatever box has the keyboard.
+    if (field) return;
     if (ctrl && e.code === 'KeyA' && this.session) {
       // Select the words on the current page, not the whole window.
       e.preventDefault();
@@ -1151,6 +1287,7 @@ export class App {
       return;
     }
     if (ctrl) return;
+    if (e.key === 'Escape' && this.pageEditor.isOpen) { this.pageEditor.close(); return; }
     if (e.key === 'Escape') {
       this.tools.cancel();
       if (this.tools.tool !== 'select') this.tools.setTool('select');
@@ -1192,8 +1329,9 @@ export class App {
   /** What each shortcut does. The keys themselves live in the shortcuts list. */
   runShortcut(id: string) {
     const s = this.session;
-    const toolIn = (mode: 'edit' | 'study', t: Tool) => {
+    const toolIn = (mode: 'edit', t: Tool) => {
       if (!s) return;
+      this.pageEditor.close();
       if (this.mode !== mode) this.setMode(mode);
       this.tools.setTool(this.tools.tool === t ? 'select' : t);
     };
@@ -1242,11 +1380,14 @@ export class App {
       }
       case 'lookup': this.study.lookupSelection(); return;
       case 'lookup-toggle': this.study.toggleLookup(); return;
-      case 'markdown': toolIn('study', 'markdown'); return;
-      case 'read-picture': toolIn('study', 'read-picture'); return;
+      case 'markdown': toolIn('edit', 'markdown'); return;
+      case 'read-picture': toolIn('edit', 'read-picture'); return;
+      case 'bookmark': if (s) this.toggleBookmark(); return;
+      case 'bookmarks': this.panels.toggle('bookmarks'); return;
+      case 'reopen-closed': void this.reopenClosed().catch(err => reportError('Reopening', err)); return;
       case 'equation': if (s) void this.study.insertEquation().catch(err => reportError('The equation', err)); return;
       case 'open': void this.openDialog().catch(err => reportError('Opening', err)); return;
-      case 'new': this.newDocument(); return;
+      case 'new': void this.createDocument().catch(err => reportError('Creating the document', err)); return;
       case 'save': case 'save-as': if (s) void this.save(id === 'save-as').catch(err => reportError('Saving', err)); return;
       case 'fullscreen': void this.fullscreen(); return;
       case 'find': if (s) this.panels.show('search'); return;
@@ -1271,6 +1412,69 @@ export class App {
     if (chosen.annots.length > 1) this.session.removeMany(chosen.page, chosen.annots);
     else this.session.removeAnnot(chosen.page, chosen.annots[0]);
     this.onSelection();
+  }
+
+  // ---- Bookmarks ----
+
+  isBookmarked(index = this.viewer.current): boolean {
+    const s = this.session;
+    const page = s?.pages[index];
+    return !!page && !!s?.bookmarks.some(b => b.pageId === page.id);
+  }
+
+  /**
+   * Bookmarks PDFy saved earlier are in the file's contents list, drawn in rgb(1, 2, 3). They come
+   * back as bookmarks, so the ribbons and the list survive saving and reopening.
+   */
+  async importBookmarks(session: Session) {
+    const src = [...session.sources.values()][0];
+    if (!src) return;
+    type Entry = { title: string; dest: unknown; color?: ArrayLike<number> };
+    let items: Entry[] | null = null;
+    try { items = (await src.pdf.getOutline()) as unknown as Entry[] | null; } catch { return; }
+    const marks: { id: string; pageId: string; title: string }[] = [];
+    for (const it of items ?? []) {
+      const c = it.color;
+      if (!c || c[0] !== 1 || c[1] !== 2 || c[2] !== 3 || !it.dest) continue;
+      try {
+        const d = typeof it.dest === 'string' ? await src.pdf.getDestination(it.dest) : it.dest;
+        if (!Array.isArray(d)) continue;
+        const index = typeof d[0] === 'number' ? d[0] : await src.pdf.getPageIndex(d[0]);
+        const page = session.pages.find(p => p.source === src.id && p.index === index);
+        if (page && !marks.some(m => m.pageId === page.id)) marks.push({ id: uid(), pageId: page.id, title: it.title || `Page ${session.pages.indexOf(page) + 1}` });
+      } catch { /* A broken entry is skipped. */ }
+    }
+    session.bookmarks = marks;
+  }
+
+  /** Adds a bookmark for the page on screen, or takes it away if there is one. */
+  toggleBookmark() {
+    const s = this.session;
+    const page = s?.pages[this.viewer.current];
+    if (!s || !page) return;
+    const had = s.bookmarks.find(b => b.pageId === page.id);
+    if (had) {
+      s.bookmarks = s.bookmarks.filter(b => b !== had);
+      toast(`Bookmark on page ${this.viewer.current + 1} removed.`, 'info');
+    } else {
+      s.bookmarks.push({ id: uid(), pageId: page.id, title: `Page ${this.viewer.current + 1}` });
+      toast(`Page ${this.viewer.current + 1} bookmarked. Ctrl+Shift+B lists your bookmarks.`, 'ok');
+    }
+    s.markDirty();
+    this.panels.change('bookmarks');
+    this.syncBookmarks();
+  }
+
+  /** The ribbon on bookmarked pages and the button beside the page number. */
+  syncBookmarks() {
+    const s = this.session;
+    const marked = new Set(s?.bookmarks.map(b => b.pageId) ?? []);
+    for (const v of this.viewer.views.values()) v.el.classList.toggle('bookmarked', marked.has(v.page.id));
+    const on = this.isBookmarked();
+    this.bookmarkBtn.classList.toggle('active', on);
+    this.bookmarkBtn.setAttribute('aria-pressed', String(on));
+    this.bookmarkBtn.title = on ? `Remove the bookmark (${keyLabel('bookmark')})` : `Bookmark this page (${keyLabel('bookmark')})`;
+    this.row.sync();
   }
 
   zoomBy(k: number) {
@@ -1322,6 +1526,9 @@ export class App {
     const session = this.session;
     if (!session) return false;
     await this.tools.settle();
+    // A form answer still being typed counts: leaving the box hands it to the document.
+    const typingIn = document.activeElement as HTMLElement | null;
+    if (typingIn?.matches?.('.own-field-ctl, .widgets .field')) typingIn.blur();
     let dest: FileSystemFileHandle | 'download' | null = saveAs ? null : session.handle;
     if (dest && !saveAs) {
       const ok = (await dest.queryPermission?.({ mode: 'readwrite' })) === 'granted' || (await dest.requestPermission?.({ mode: 'readwrite' })) === 'granted';
@@ -1394,7 +1601,9 @@ export class App {
     this.viewer.scale = scale;
     this.viewer.attach(session);
     this.viewer.goTo(page);
+    await this.importBookmarks(session);
     this.panels.attach(session);
+    this.pageEditor.attach();
     this.refresh();
     void addRecent(handle.name, handle, session.pages.length);
   }
@@ -1473,6 +1682,17 @@ export class App {
     this.viewer.goTo(at + 1);
   }
 
+  /** The page editor opened or closed. */
+  onPagesView() { this.syncRibbon(); }
+
+  /** Pages from PDFs or pictures, inserted at this position. */
+  async insertFilesAt(accept: string, at: number) {
+    const s = this.session;
+    if (!s) return;
+    const files = await pickFiles(accept, true);
+    if (files.length && await this.addFilesToSession(s, files, at)) this.viewer.goTo(at);
+  }
+
   async insertFromFile() {
     const s = this.session;
     if (!s) return;
@@ -1508,10 +1728,23 @@ export class App {
     return true;
   }
 
-  /** A page the same size as the picture, with the picture drawn in. */
-  private async imagePage(s: Session, blob: Blob): Promise<PageRef> {
+  /** A page with the picture drawn in: the picture's own size, or fitted on an A4 or Letter page. */
+  private async imagePage(s: Session, blob: Blob, paper: 'a4' | 'letter' | null = null, margin = false): Promise<PageRef> {
     const asset = await assetFromBlob(await readableImage(blob), this.preferredStyle());
     const size = fitSize(asset, 14400, 14400);
+    if (paper) {
+      const portrait = size.h >= size.w;
+      const [a, b] = paper === 'a4' ? [595.28, 841.89] : [612, 792];
+      const pw = portrait ? a : b, ph = portrait ? b : a;
+      const pad = margin ? 28 : 0;
+      const k = Math.min((pw - pad * 2) / size.w, (ph - pad * 2) / size.h);
+      const w = size.w * k, ht = size.h * k;
+      const page = s.blankPage(pw, ph);
+      const annot = makeImageAnnot(page, asset, (pw - w) / 2, (ph - ht) / 2, w, ht, this.authorName());
+      annot.burn = true;
+      page.annots = [annot];
+      return page;
+    }
     const page = s.blankPage(size.w, size.h);
     const annot = makeImageAnnot(page, asset, 0, 0, size.w, size.h, this.authorName());
     annot.burn = true;
@@ -1694,36 +1927,51 @@ export class App {
     toast(`Click where "${f.name}" should be pinned.`, 'info');
   }
 
-  /** Records from the microphone, then the voice note is pinned like any file. */
+  /** Records from the microphone, lets you listen back, then the voice note is pinned like any file. */
   async voiceNoteCmd() {
-    let stream: MediaStream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch (err) { toast(`The microphone could not be used. ${(err as Error).message}`, 'error'); return; }
-    const chunks: Blob[] = [];
-    const rec = new MediaRecorder(stream);
-    rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-    const ended = new Promise<void>(res => { rec.onstop = () => res(); });
-    rec.start();
-    const started = Date.now();
-    const timer = h('p', { class: 'rec-time' }, 'Recording… 0 s');
-    const tick = window.setInterval(() => { timer.textContent = `Recording… ${Math.round((Date.now() - started) / 1000)} s`; }, 500);
-    const keep = await openDialog('Voice note', timer, [{ label: 'Cancel', value: false }, { label: 'Stop and keep', value: true, primary: true }], false);
-    clearInterval(tick);
-    rec.stop();
-    await ended;
-    stream.getTracks().forEach(t => t.stop());
-    if (!keep) return;
-    const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
-    this.pendingAttachment = { name: `Voice note ${new Date().toLocaleTimeString().replace(/[: ]/g, '-')}.webm`, mime: blob.type, blob, voice: true };
+    const blob = await recordVoice();
+    if (!blob) return;
+    const when = new Date();
+    const stamp = `${when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} ${when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+    this.pendingAttachment = { name: `Voice note ${stamp.replace(/[\\/:*?"<>|]/g, '-')}.webm`, mime: blob.type, blob, voice: true };
     this.tools.setTool('attach');
-    toast('Click where the voice note should be pinned.', 'info');
+    toast('Click where the voice note should be pinned. Click the note later to play it.', 'info', 5000);
   }
 
-  private openAttachment(a: Annot) {
+  /** The bytes of a pinned file, whether it was added now or was already in the PDF. */
+  private async attachmentBlob(a: Annot): Promise<Blob | null> {
     const f = a.attachment;
-    if (!f?.blob) { toast('Files saved in a PDF are listed in the Attachments panel.', 'info'); this.panels.show('attachments'); return; }
-    if (f.voice) { void new Audio(URL.createObjectURL(f.blob)).play().catch(err => reportError('Playing the voice note', err)); return; }
-    downloadBlob(f.blob, f.name);
+    if (!f) return null;
+    if (f.blob) return f.blob;
+    const s = this.session;
+    if (!s || !f.fileId) return null;
+    const page = s.pages.find(p => p.annots.includes(a));
+    const src = page?.source ? s.sources.get(page.source) : null;
+    if (!src) return null;
+    const got = await src.pdf.getAttachmentContent(f.fileId) as unknown as { content?: Uint8Array } | Uint8Array | null;
+    const bytes = got instanceof Uint8Array ? got : got?.content;
+    if (!bytes) return null;
+    // Kept on the note, so it plays at once next time and is saved again if the note is moved.
+    f.blob = new Blob([bytes as BlobPart], { type: f.mime || (f.voice ? 'audio/webm' : '') });
+    return f.blob;
+  }
+
+  openAttachment(a: Annot) {
+    void (async () => {
+      const f = a.attachment;
+      const blob = await this.attachmentBlob(a);
+      if (!f || !blob) { toast('This file could not be read from the PDF. The Attachments panel lists files saved with the document.', 'info'); this.panels.show('attachments'); return; }
+      if (!f.voice) { downloadBlob(blob, f.name); return; }
+      const s = this.session;
+      const page = s?.pages.find(p => p.annots.includes(a));
+      const v = page ? this.viewer.views.get(page.id) : undefined;
+      const node = v?.annotsG.querySelector(`[data-id="${a.id}"]`)?.getBoundingClientRect();
+      const at = node ? { x: node.left, y: node.bottom } : { x: innerWidth / 2 - 140, y: innerHeight / 2 };
+      showVoicePlayer(blob, f.name.replace(/\.[^.]+$/, ''), at, {
+        save: () => downloadBlob(blob, f.name),
+        remove: () => { if (s && page) { const now = page.annots.find(x => x.id === a.id); if (now) { this.viewer.select(null); s.removeAnnot(page, now); this.onSelection(); } } },
+      });
+    })().catch(err => reportError('Opening the note', err));
   }
 
   async wordEditorCmd() {
@@ -1945,6 +2193,18 @@ export class App {
     const f = await formDialog('Add form field', fields, 'Add');
     if (!f) return null;
     return { name: String(f.name).trim() || `field_${uid()}`, options: f.options ? String(f.options).split('\n').map(x => x.trim()).filter(Boolean) : undefined };
+  }
+
+  /** Plain words on filling in forms and making your own. */
+  async formsHelp() {
+    const step = (title: string, text: string) => h('div', { class: 'help-step' }, h('strong', null, title), h('p', null, text));
+    await openDialog('How forms work', h('div', { class: 'help-steps' },
+      step('Filling in a form', 'Stay in Read, not Edit. Fields show a light blue box. Click one and type, tick or choose. Save keeps what you filled in, and any PDF app can read it.'),
+      step('Making your own form', 'Open Edit, then Forms, and choose a kind of field: text, tick box, choice, drop-down or list. Drag a box where it goes and give it a name. Press Escape to go back to Read: the field is ready to fill in.'),
+      step('Moving or resizing a field', 'In Edit, click the field’s box to move it or drag its corners. In Read, clicking a field fills it in instead.'),
+      step('A printed or scanned form', 'Detect fields finds blank lines and boxes on the page and turns them into fields for you.'),
+      step('When the form is finished', 'Flatten forms makes the answers part of the page, so they can no longer be changed.')),
+    [{ label: 'Close', value: true, primary: true }], true);
   }
 
   // ---- Decorations ----
@@ -2327,45 +2587,48 @@ export class App {
 
   // ---- Start screen and recovery ----
 
+  /** Draws the Home screen when it is showing. */
   private async drawStart() {
-    if (this.session) return;
-    let recent: RecentFile[] = [];
-    try { recent = await listRecent(); } catch { /* Shown without the list. */ }
-    if (this.session) return;
-    clear(this.startEl);
-    this.startEl.append(h('div', { class: 'start-card' },
-      h('h1', null, 'PDFy'),
-      h('p', { class: 'lead' }, 'Open a PDF, or paste a screenshot and turn it light or dark.'),
-      h('div', { class: 'drop-zone' },
-        h('p', null, 'Drop a PDF or image here, or press ', h('span', { class: 'keys' }, 'Ctrl'), ' ', h('span', { class: 'keys' }, 'V'), ' to paste an image.'),
-        h('div', { class: 'start-actions' },
-          h('button', { class: 'btn primary', onclick: safe(() => this.openDialog(), 'Opening') }, 'Open file'),
-          h('button', { class: 'btn', onclick: safe(() => this.newDocument(), 'New document') }, 'New blank document'),
-          h('button', { class: 'btn', onclick: safe(() => this.imagesToPdf(), 'Images to PDF') }, 'Images to PDF'))),
-      recent.length ? h('div', { class: 'recent' }, h('h2', null, 'Recent files'),
-        ...recent.slice(0, 8).map(r => h('button', { class: 'recent-row', onclick: safe(() => this.openRecent(r), 'Opening') },
-          icon('file', 15), h('span', { class: 'name' }, r.name), h('small', { class: 'muted' }, `${r.pages} pages`)))) : null));
+    if (this.session && !this.showingHome) return;
+    await this.home.draw();
   }
 
-  private async openRecent(r: RecentFile) {
-    const ok = (await r.handle.queryPermission?.({ mode: 'read' })) === 'granted' || (await r.handle.requestPermission?.({ mode: 'read' })) === 'granted';
+  toggleHome() { if (this.showingHome) this.hideHome(); else if (this.session) { this.showingHome = true; this.refresh(); void this.drawStart(); } }
+
+  hideHome() { if (this.showingHome) { this.showingHome = false; this.refresh(); } }
+
+  /** Right-click on a document tab. */
+  private tabMenu(e: MouseEvent, s: Session) {
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Add to collection…', icon: 'folder', run: () => this.addToCollection(s) },
+      { label: 'Close', icon: 'close', key: keyLabel('close-tab'), run: () => this.closeSession(s) },
+      this.sessions.length > 1 ? { label: 'Close the others', icon: 'close', run: async () => { for (const o of [...this.sessions]) if (o !== s) await this.closeSession(o); } } : null,
+    ].filter(Boolean) as MenuItem[]);
+  }
+
+  /** Puts the document into one or more collections on the Home screen. */
+  async addToCollection(s = this.session) {
+    if (!s) return;
+    if (!s.handle) { toast('Save the document first. A collection keeps a link to the file on disk.', 'info', 5000); return; }
+    await this.home.chooseCollectionFor({ name: s.name, handle: s.handle });
+  }
+
+  /** Opens the document closed most recently, at the page it was on. */
+  async reopenClosed() {
+    const [last] = await listClosed();
+    if (!last) { toast('No recently closed documents.', 'info'); return; }
+    const ok = (await last.handle.queryPermission?.({ mode: 'read' })) === 'granted' || (await last.handle.requestPermission?.({ mode: 'read' })) === 'granted';
     if (!ok) return;
-    try { await r.handle.getFile(); }
-    catch {
-      toast(`"${r.name}" is no longer there.`, 'error');
-      await removeRecent(r.name);
-      void this.drawStart();
-      return;
-    }
-    await this.openHandle(r.handle);
+    await removeClosed(last.id);
+    await this.openHandle(last.handle, last.page);
   }
 
   private async checkRecovery() {
     const journals = await listJournals();
     if (!journals.length) return;
-    const names = journals.map(j => `• ${j.name}`).join('\n');
     const ok = await openDialog('Recover your work?',
-      h('p', { style: { whiteSpace: 'pre-wrap' } }, `PDFy did not close normally. These documents have unsaved changes:\n\n${names}`),
+      h('div', null, h('p', null, 'PDFy did not close normally. These documents have unsaved changes:'),
+        h('ul', { class: 'plain-list' }, ...journals.map(j => h('li', null, j.name)))),
       [{ label: 'Discard', value: false }, { label: 'Recover', value: true, primary: true }], false);
     for (const j of journals) {
       if (!ok) { await dropJournal(j.id); continue; }

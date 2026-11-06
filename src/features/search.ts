@@ -10,15 +10,18 @@ interface PageText { text: string; items: { start: number; end: number; x: numbe
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const cache = new WeakMap<Session, Map<string, PageText>>();
+const cache = new WeakMap<Session, Map<string, { sig: string; text: PageText }>>();
 
 export async function pageText(session: Session, page: PageRef): Promise<PageText> {
   let map = cache.get(session);
   if (!map) { map = new Map(); cache.set(session, map); }
   const ocr = session.ocrWords.get(page.id);
-  const key = ocr ? `ocr:${page.id}` : `${page.source}:${page.index}`;
+  const pictures = session.pictureWords.get(page.id);
+  // One entry per page. Words read from pictures belong to this page only, so they join its key.
+  const key = ocr || pictures ? `page:${page.id}` : `${page.source}:${page.index}`;
+  const sig = `${ocr ? 'ocr' : ''}:${pictures ? session.pictureRevs.get(page.id) ?? 0 : ''}`;
   const hit = map.get(key);
-  if (hit) return hit;
+  if (hit && hit.sig === sig) return hit.text;
 
   let text = '';
   const items: PageText['items'] = [];
@@ -42,8 +45,13 @@ export async function pageText(session: Session, page: PageRef): Promise<PageTex
       pdfPage.cleanup();
     }
   }
+  // Words read from pictures come last, after the page's own text.
+  if (pictures?.length) {
+    if (text && !text.endsWith('\n')) text += '\n';
+    for (const w of pictures) pushWord(w.text, w.x, w.y, w.w, w.h, ' ');
+  }
   const out = { text, items };
-  map.set(key, out);
+  map.set(key, { sig, text: out });
   return out;
 }
 

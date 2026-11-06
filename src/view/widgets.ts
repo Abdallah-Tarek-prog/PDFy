@@ -102,7 +102,14 @@ export async function loadGhosts(session: Session, page: PageRef, pdfPage: PDFPa
         a.italic = !!marked.data.i;
       }
     }
-    if (kind === 'attachment') a.attachment = { name: d.file?.filename ?? 'attachment', mime: '' };
+    if (kind === 'attachment') {
+      const name = d.file?.filename ?? 'attachment';
+      const audio = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac)$/i.exec(name);
+      a.attachment = {
+        name, fileId: d.fileId, voice: d.name === 'Speaker' || !!audio,
+        mime: audio ? `audio/${audio[1].toLowerCase().replace('mp3', 'mpeg').replace('m4a', 'mp4').replace('oga', 'ogg').replace('opus', 'ogg')}` : '',
+      };
+    }
     if (a.pts && kind !== 'text') {
       const b = pointsBounds(a.pts);
       if (!Number.isFinite(b[0])) delete a.pts;
@@ -113,6 +120,75 @@ export async function loadGhosts(session: Session, page: PageRef, pdfPage: PDFPa
     page.annots.unshift(...added);
     session.emit({ kind: 'annots', pageIds: [page.id] });
   }
+}
+
+/**
+ * Form fields made in PDFy, fillable straight away in Read, before the form is ever saved. Edit mode
+ * shows them as boxes to move and resize instead. Controls are kept between redraws, so moving from
+ * one field to the next with Tab never loses the cursor.
+ */
+export function buildOwnFields(viewer: Viewer, v: PageView) {
+  const session = viewer.session;
+  const fields = v.page.annots.filter(a => a.field && !a.ghost && a.field.type !== 'signature');
+  let host = v.el.querySelector(':scope > .own-fields') as HTMLElement | null;
+  if (!fields.length) { host?.remove(); return; }
+  if (!host) { host = h('div', { class: 'own-fields' }); v.el.append(host); }
+  const keep = new Set<string>();
+  for (const a of fields) {
+    const f = a.field!;
+    keep.add(a.id);
+    const p0 = toScreen(v.vp, a.rect[0], a.rect[1]), p1 = toScreen(v.vp, a.rect[2], a.rect[3]);
+    const box = { left: `${Math.min(p0[0], p1[0])}px`, top: `${Math.min(p0[1], p1[1])}px`, width: `${Math.abs(p1[0] - p0[0])}px`, height: `${Math.abs(p1[1] - p0[1])}px` };
+    const ht = Math.abs(p1[1] - p0[1]);
+    const key = `${f.type}|${(f.options ?? []).join('\u0001')}`;
+    let ctl = host.querySelector(`[data-field="${a.id}"]`) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
+    if (ctl && ctl.dataset.key !== key) { ctl.remove(); ctl = null; }
+    const commit = (value: string | boolean | string[]) => {
+      const page = v.page;
+      const now = page.annots.find(x => x.id === a.id);
+      if (!now?.field || !session) return;
+      session.replaceAnnot(page, now, { ...now, field: { ...now.field, value } }, 'Fill in a field');
+    };
+    if (!ctl) {
+      if (f.type === 'text') {
+        ctl = ht > 40 ? h('textarea', { class: 'own-field-ctl' }) : h('input', { class: 'own-field-ctl', type: 'text' });
+        ctl.addEventListener('change', () => commit(ctl!.value));
+      } else if (f.type === 'radio') {
+        ctl = h('input', { class: 'own-field-ctl check', type: 'radio', name: `own-radio-${f.name}` });
+        ctl.addEventListener('change', () => {
+          if (!(ctl as HTMLInputElement).checked || !session) return;
+          // One answer per question: this choice on, every other choice with the same name off, as one undo step.
+          const changes = session.pages.flatMap(pg => pg.annots
+            .filter(x => x.field?.type === 'radio' && x.field.name === f.name && !x.ghost)
+            .map(x => ({ page: pg, before: x, after: { ...x, field: { ...x.field!, value: x.id === a.id } } }))
+            .filter(c => c.before.field!.value !== c.after.field.value));
+          session.replaceAcross(changes, 'Fill in a field');
+        });
+      } else if (f.type === 'check') {
+        ctl = h('input', { class: 'own-field-ctl check', type: 'checkbox' });
+        ctl.addEventListener('change', () => commit((ctl as HTMLInputElement).checked));
+      } else {
+        const sel = h('select', { class: 'own-field-ctl', multiple: f.type === 'list' }, ...(f.options ?? []).map(o => h('option', { value: o }, o)));
+        if (f.type === 'dropdown') sel.prepend(h('option', { value: '' }, ''));
+        sel.addEventListener('change', () => commit(f.type === 'list' ? [...sel.selectedOptions].map(o => o.value) : sel.value));
+        ctl = sel;
+      }
+      ctl.dataset.field = a.id;
+      ctl.dataset.key = key;
+      ctl.title = f.name;
+      ctl.setAttribute('aria-label', f.name);
+      host.append(ctl);
+    }
+    Object.assign(ctl.style, box, { fontSize: `${Math.max(9, Math.min(ht * 0.6, 16))}px` });
+    if (ctl instanceof HTMLInputElement && (ctl.type === 'checkbox' || ctl.type === 'radio')) {
+      // A focused choice must follow Undo too; only text edits need to keep their live value.
+      ctl.checked = f.value === true || f.value === 'true';
+    } else if (document.activeElement !== ctl) {
+      if (ctl instanceof HTMLSelectElement && ctl.multiple) { const vals = Array.isArray(f.value) ? f.value : []; for (const o of ctl.options) o.selected = vals.includes(o.value); }
+      else ctl.value = typeof f.value === 'string' ? f.value : '';
+    }
+  }
+  for (const c of [...host.children] as HTMLElement[]) if (!keep.has(c.dataset.field ?? '')) c.remove();
 }
 
 /** Form controls and clickable links, placed over the page. */
@@ -126,6 +202,8 @@ export async function buildWidgets(viewer: Viewer, v: PageView, pdfPage?: PDFPag
   v.widgetsLoaded = true;
   let list: any[];
   try { list = await pdfPage.getAnnotations({ intent: 'display' }); } catch { return; }
+  // Include choices on unmounted pages when clearing the earlier answer to a radio question.
+  const fieldObjects = list.some(d => d.radioButton) ? await src.pdf.getFieldObjects().catch(() => null) : null;
   v.widgets.replaceChildren();
   for (const d of list) {
     if (!d.rect) continue;
@@ -142,13 +220,14 @@ export async function buildWidgets(viewer: Viewer, v: PageView, pdfPage?: PDFPag
       });
       v.widgets.append(link);
     } else if (d.subtype === 'Widget' && !d.readOnly) {
-      const ctl = buildField(viewer, v, src, d, box, ht);
-      if (ctl) v.widgets.append(ctl);
+      const radioIds = d.radioButton ? (fieldObjects?.get(d.fieldName) ?? list.filter(f => f.radioButton && f.fieldName === d.fieldName)).map((f: any) => f.id as string) : [];
+      const ctl = buildField(viewer, v, src, d, box, ht, radioIds);
+      if (ctl) { v.widgets.append(ctl); document.dispatchEvent(new CustomEvent('pdfy-form-found')); }
     }
   }
 }
 
-function buildField(viewer: Viewer, v: PageView, src: { pdf: any; formsEdited: boolean }, d: any, box: Record<string, string>, height: number): HTMLElement | null {
+function buildField(viewer: Viewer, v: PageView, src: { pdf: any; formsEdited: boolean }, d: any, box: Record<string, string>, height: number, radioIds: string[]): HTMLElement | null {
   const storage = src.pdf.annotationStorage;
   const commit = (value: unknown) => {
     storage.setValue(d.id, { value });
@@ -173,12 +252,19 @@ function buildField(viewer: Viewer, v: PageView, src: { pdf: any; formsEdited: b
     return el;
   }
   if (d.fieldType === 'Btn' && d.radioButton) {
-    const el = h('input', { class: 'field check', type: 'radio', name: `r-${d.fieldName}`, style: box, checked: saved === d.buttonValue });
-    el.addEventListener('change', () => commit(el.checked));
+    const el = h('input', { class: 'field check', type: 'radio', name: `r-${viewer.session?.id}-${v.page.source}-${d.fieldName}`, style: box, checked: typeof saved === 'boolean' ? saved : saved === d.buttonValue });
+    el.addEventListener('change', () => {
+      if (!el.checked) return;
+      for (const id of radioIds) if (id !== d.id) storage.setValue(id, { value: false });
+      // Visible siblings are unchecked by their shared input name; redraw their PDF appearances too.
+      for (const view of viewer.views.values()) if (view.page.source === v.page.source) view.needsRender = true;
+      commit(true);
+    });
     return el;
   }
   if (d.fieldType === 'Ch') {
-    const el = h('select', { class: 'field', style: { ...box, fontSize: size }, multiple: !!d.multiSelect },
+    const el = h('select', { class: 'field', style: { ...box, fontSize: size }, multiple: !!d.multiSelect, size: d.combo ? undefined : Math.max(1, Math.min(6, d.options?.length ?? 1)) },
+      d.combo ? h('option', { value: '', selected: !saved || (Array.isArray(saved) && !saved.length) }, '') : null,
       ...(d.options ?? []).map((o: any) => h('option', { value: o.exportValue, selected: Array.isArray(saved) ? saved.includes(o.exportValue) : saved === o.exportValue }, o.displayValue)));
     el.addEventListener('change', () => commit(d.multiSelect ? [...el.selectedOptions].map(o => o.value) : el.value));
     return el;

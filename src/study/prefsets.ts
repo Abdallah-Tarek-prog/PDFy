@@ -38,7 +38,7 @@ export const BUILT_IN_SETS: PrefSet[] = [
     pen: '#343a40', penWidth: 1.25, marker: '#e9ecef', mdTheme: 'academic', reading: 'normal', uiTheme: 'light', lookup: false,
   },
   {
-    id: 'night', name: 'Night reading', about: 'Dark pages and interface, with colours that stay readable on them. Word lookup is on.', builtIn: true,
+    id: 'night', name: 'Night reading', about: 'Dark pages, with colours that stay readable on them. Word lookup is on.', builtIn: true,
     textFont: 'Segoe UI', textSize: 12, textColor: '#d6deeb', highlight: '#7fdbca', highlightOpacity: 0.4, underline: '#82aaff',
     pen: '#82aaff', penWidth: 1.75, marker: '#3f5f4f', mdTheme: 'night-owl', reading: 'night', uiTheme: 'dark', lookup: true,
   },

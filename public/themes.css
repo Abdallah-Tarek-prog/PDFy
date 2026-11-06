@@ -1,7 +1,7 @@
 /* Load after styles.css. Only semantic colours: layout belongs to styles.css. */
 
 /* Slate: blue-grey chrome, a lifted canvas and a clear sky-blue accent. */
-:root[data-ui-theme="slate"] {
+:is(:root, .theme-scope)[data-ui-theme="slate"] {
   color-scheme: dark;
   --bg: #1d242e;
   --surface: #252d38;
@@ -31,7 +31,7 @@
 }
 
 /* Midnight: ink-blue layers, electric periwinkle and cool starlight. */
-:root[data-ui-theme="midnight"] {
+:is(:root, .theme-scope)[data-ui-theme="midnight"] {
   color-scheme: dark;
   --bg: #141928;
   --surface: #1d2338;
@@ -61,7 +61,7 @@
 }
 
 /* Mocha: warm plum, soft mauve and rose, with no neutral-grey layers. */
-:root[data-ui-theme="mocha"] {
+:is(:root, .theme-scope)[data-ui-theme="mocha"] {
   color-scheme: dark;
   --bg: #1e1a25;
   --surface: #2b2533;
@@ -91,7 +91,7 @@
 }
 
 /* Dracula: violet-black foundations, pink actions and cyan active labels. */
-:root[data-ui-theme="dracula"] {
+:is(:root, .theme-scope)[data-ui-theme="dracula"] {
   color-scheme: dark;
   --bg: #18151f;
   --surface: #272331;
@@ -121,7 +121,7 @@
 }
 
 /* Nord: polar blue surfaces and a frost-blue accent. */
-:root[data-ui-theme="nord"] {
+:is(:root, .theme-scope)[data-ui-theme="nord"] {
   color-scheme: dark;
   --bg: #222e3c;
   --surface: #2e3c4d;
@@ -151,7 +151,7 @@
 }
 
 /* Forest: bottle-green depth and a fluorescent yellow marker. */
-:root[data-ui-theme="forest"] {
+:is(:root, .theme-scope)[data-ui-theme="forest"] {
   color-scheme: dark;
   --bg: #10251f;
   --surface: #19372c;
@@ -181,7 +181,7 @@
 }
 
 /* Ember: warm graphite and copper-orange, like a lamp over the desk. */
-:root[data-ui-theme="ember"] {
+:is(:root, .theme-scope)[data-ui-theme="ember"] {
   color-scheme: dark;
   --bg: #241e1b;
   --surface: #302923;
@@ -211,7 +211,7 @@
 }
 
 /* Daylight: crisp blue-white panels under a comfortable mid-grey header. */
-:root[data-ui-theme="daylight"] {
+:is(:root, .theme-scope)[data-ui-theme="daylight"] {
   color-scheme: light;
   --bg: #e9eef5;
   --surface: #fcfdff;
@@ -241,7 +241,7 @@
 }
 
 /* Paper: warm ivory panels, sepia chrome and walnut accents. */
-:root[data-ui-theme="paper"] {
+:is(:root, .theme-scope)[data-ui-theme="paper"] {
   color-scheme: light;
   --bg: #eee7d9;
   --surface: #fcf6e9;

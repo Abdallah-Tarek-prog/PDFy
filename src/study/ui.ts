@@ -5,7 +5,7 @@ import { placeBox, uid, viewportFor, type Annot, type PageRef } from '../core/mo
 import { getSettings, saveSettings } from '../core/settings';
 import type { Session } from '../core/session';
 import { colourButton } from '../ui/colorpicker';
-import { confirmDialog, formDialog, openDialog } from '../ui/dialogs';
+import { confirmDialog, openDialog } from '../ui/dialogs';
 import { clear, h, reportError, safe, toast } from '../ui/dom';
 import { fontButton } from '../ui/fontpicker';
 import type { Tool, Tools } from '../view/tools';
@@ -16,8 +16,7 @@ import { installedFonts } from './fonts';
 import { renderMarkdownInto } from './markdown';
 import { MATH_GROUPS, mathBoxSize, texToSvg, type MathResult } from './math';
 import { allThemes, customThemes, ensureRichCss, saveCustomThemes, themeById, themeVars, type MdTheme } from './mdthemes';
-import { allSets, customSets, saveCustomSets, type PrefSet } from './prefsets';
-import { applyUiTheme, DEFAULT_DARK, DEFAULT_LIGHT } from '../ui/themes';
+import { type PrefSet } from './prefsets';
 import { closeWordLayer, readWords, regionCanvas, showWordLayer } from './readpicture';
 
 export interface StudyHost {
@@ -95,7 +94,7 @@ export class Study {
   private sentenceAround(word: string): string {
     const sel = window.getSelection();
     const el = sel?.anchorNode?.parentElement;
-    const host = el?.closest('.textLayer');
+    const host = el?.closest('.textLayer, .read-layer');
     if (!el || !host) return '';
     const spans = [...host.querySelectorAll('span')].filter(s => !s.children.length);
     const at = spans.indexOf(el as HTMLSpanElement);
@@ -132,7 +131,7 @@ export class Study {
       // A newer read, another document, or a page that scrolled away: this result is no longer wanted.
       if (mine !== this.readToken || this.host.session !== s || !v.el.isConnected) return;
       if (!words.length) { toast('No words could be read there. Try a larger area, or zoom into a sharper picture.', 'info'); return; }
-      showWordLayer(v, words, shot);
+      showWordLayer(v, words, shot, found => s.addPictureWords(page.id, found));
     } finally {
       this.host.setStatus('');
     }
@@ -240,7 +239,7 @@ export class Study {
     for (const v of this.host.viewer.views.values()) this.host.viewer.drawAnnots(v);
   }
 
-  // ---- Preferences ----
+  // ---- Quick setups ----
 
   async applySet(set: PrefSet) {
     const t = this.host.tools;
@@ -256,13 +255,13 @@ export class Study {
     saveSettings({ mdTheme: set.mdTheme, lookup: set.lookup, prefSet: set.id });
     this.lookupOn = set.lookup;
     if (!set.lookup) closeDictionary();
+    // Page colours only. The interface theme is never changed behind your back: that is in Appearance.
     this.host.setReading(set.reading);
-    applyUiTheme(set.uiTheme === 'dark' ? DEFAULT_DARK : DEFAULT_LIGHT);
     this.host.refreshStudy();
     toast(fontName ? `“${set.name}” is on.` : `“${set.name}” is on. Its font, ${set.textFont}, is not on this PC, so the standard one stays.`, 'ok');
   }
 
-  private currentAsSet(name: string): PrefSet {
+  currentAsSet(name: string): PrefSet {
     const t = this.host.tools;
     const text = t.style('text'), hl = t.style('highlight'), ul = t.style('underline'), pen = t.style('pen'), marker = t.style('marker');
     const s = getSettings();
@@ -275,74 +274,6 @@ export class Study {
       uiTheme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
       lookup: this.lookupOn,
     };
-  }
-
-  async preferencesDialog() {
-    const cur = getSettings();
-    const author = h('input', { id: 'f-author', type: 'text', value: cur.author });
-    const reopen = h('input', { id: 'f-reopen', type: 'checkbox', checked: cur.reopenAtLastPage });
-    const lookup = h('input', { id: 'f-lookup', type: 'checkbox', checked: this.lookupOn });
-    const onlineDict = h('input', { id: 'f-online', type: 'checkbox', checked: cur.onlineDict });
-    const dictTab = h('select', { id: 'f-dicttab' }, ...[['cambridge', 'Cambridge English–Arabic'], ['oxford', "Oxford Learner's"], ['longman', 'Longman'], ['quick', 'Quick (offline)']].map(([v, l]) => h('option', { value: v, selected: v === cur.dictTab }, l)));
-    const ocr = h('select', { id: 'f-ocr' }, ...OCR_LANGUAGES.map(l => h('option', { value: l.value, selected: l.value === cur.ocrLang }, l.label)));
-    const noteTheme = h('select', { id: 'f-theme' }, ...allThemes().map(t => h('option', { value: t.id, selected: t.id === cur.mdTheme }, t.name)));
-    const setsBox = h('div', { class: 'set-grid' });
-
-    const drawSets = () => {
-      clear(setsBox);
-      const active = getSettings().prefSet;
-      for (const set of allSets()) {
-        const card = h('div', { class: `set-card${set.id === active ? ' on' : ''}` },
-          h('div', { class: 'set-swatches' }, ...[set.highlight, set.pen, set.textColor].map(c => h('span', { style: { background: c } }))),
-          h('div', { class: 'set-name' }, set.name),
-          h('div', { class: 'set-about' }, set.about),
-          h('div', { class: 'set-actions' },
-            h('button', {
-              class: 'btn small', 'data-set': set.id,
-              onclick: safe(async () => { await this.applySet(set); lookup.checked = this.lookupOn; noteTheme.value = set.mdTheme; drawSets(); }, 'Applying'),
-            }, set.id === active ? 'In use' : 'Use this'),
-            set.builtIn ? null : h('button', {
-              class: 'btn small',
-              onclick: safe(async () => { saveCustomSets(customSets().filter(x => x.id !== set.id)); drawSets(); }, 'Removing'),
-            }, 'Remove')));
-        setsBox.append(card);
-      }
-    };
-    drawSets();
-
-    const row = (label: string, ctl: HTMLElement, hint?: string) => h('div', { class: 'field-row' }, h('label', { for: ctl.id }, label), ctl, hint ? h('small', null, hint) : null);
-    const body = h('div', { class: 'form prefs' },
-      h('h3', { class: 'prefs-title' }, 'Preference sets'),
-      h('p', { class: 'muted' }, 'One click sets fonts, colours, note style, reading mode and word lookup together.'),
-      setsBox,
-      h('button', {
-        class: 'btn small',
-        onclick: safe(async () => {
-          const f = await formDialog('Save these settings as a set', [{ key: 'name', label: 'Name', type: 'text', placeholder: 'My revision set' }], 'Save');
-          const name = f ? String(f.name).trim() : '';
-          if (!name) return;
-          const set = this.currentAsSet(name);
-          saveCustomSets([...customSets(), set]);
-          saveSettings({ prefSet: set.id });
-          drawSets();
-        }, 'Saving the set'),
-      }, 'Save current settings as a new set'),
-      h('h3', { class: 'prefs-title' }, 'Study tools'),
-      h('label', { class: 'field-row check-row' }, lookup, 'Word lookup: double-click or select a word to see its meaning'),
-      h('label', { class: 'field-row check-row' }, onlineDict, 'Read the Cambridge, Oxford and Longman pages for the word when online, with their recordings'),
-      row('Dictionary shown first', dictTab),
-      row('Language for reading text from pictures', ocr),
-      h('div', { class: 'field-row' }, h('label', { for: 'f-theme' }, 'Look of new Markdown notes'),
-        h('div', { class: 'row-gap' }, noteTheme, h('button', { class: 'btn small', onclick: safe(() => this.themesDialog(noteTheme.value), 'Themes') }, 'Edit themes…'))),
-      h('h3', { class: 'prefs-title' }, 'General'),
-      row('Your name on comments and markups', author),
-      h('label', { class: 'field-row check-row' }, reopen, 'Reopen documents at the page I left'));
-
-    const ok = await openDialog('Preferences', body, [{ label: 'Cancel', value: false }, { label: 'Save', value: true, primary: true }], false, undefined, true);
-    if (!ok) return;
-    saveSettings({ author: author.value.trim() || cur.author, reopenAtLastPage: reopen.checked, ocrLang: ocr.value, mdTheme: noteTheme.value, onlineDict: onlineDict.checked, dictTab: dictTab.value as 'quick' | 'cambridge' | 'oxford' | 'longman' });
-    if (lookup.checked !== this.lookupOn) this.toggleLookup(lookup.checked);
-    this.host.refreshStudy();
   }
 }
 

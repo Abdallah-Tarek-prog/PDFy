@@ -60,7 +60,7 @@ export interface Annot {
   textColor?: string;
   image?: ImageAsset;
   /** A file or voice note pinned to this spot. */
-  attachment?: { name: string; mime: string; blob?: Blob; voice?: boolean };
+  attachment?: { name: string; mime: string; blob?: Blob; voice?: boolean; /** Where pdf.js keeps the bytes of a file already in the PDF. */ fileId?: string };
   stamp?: string;
   measureUnit?: string;
   measureScale?: number; // Real units per point.
@@ -70,7 +70,7 @@ export interface Annot {
   angle?: number;
   /** Drawn into the page itself on save instead of staying a movable annotation. */
   burn?: boolean;
-  field?: { type: 'text' | 'check' | 'radio' | 'dropdown' | 'list' | 'signature'; name: string; options?: string[] };
+  field?: { type: 'text' | 'check' | 'radio' | 'dropdown' | 'list' | 'signature'; name: string; options?: string[]; /** What was filled in, before the form is saved. */ value?: string | boolean | string[] };
   /** Comment thread. */
   replies?: Reply[];
   status?: ReviewStatus;

@@ -27,7 +27,7 @@ export interface PopupOptions {
   y: number;
   /** The sentence around the word, for translating it whole. */
   sentence?: string;
-  /** Start on this tab instead of the one chosen in Preferences. */
+  /** Start on this tab instead of the one chosen in Settings. */
   tab?: TabId;
 }
 
@@ -168,7 +168,7 @@ export async function showDictionary(text: string, opts: PopupOptions) {
     }
     const id = state.tab;
     if (!online) {
-      pane.append(h('div', { class: 'dict-empty' }, 'Reading the dictionary websites is off. Turn it on in Preferences, under Study tools.'));
+      pane.append(h('div', { class: 'dict-empty' }, 'Reading the dictionary websites is off. Turn it on in Settings, under Study tools.'));
       return;
     }
     if (!state.online.has(id)) {

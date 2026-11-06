@@ -1,8 +1,8 @@
-// Reads words out of a picture, then lets you click them. You drag over a pasted image, a scan or any
-// part of a page. Each word found becomes a clickable spot right where it sits in the picture.
+// Reads words out of a picture. You drag over a pasted image, a scan or any part of a page. The words
+// found become invisible, selectable text right where they sit, like the text of a normal PDF.
 
 import { renderToCanvas } from '../core/engine';
-import { toScreen, viewportFor, type Annot, type PageRef } from '../core/model';
+import { toPdf, toScreen, viewportFor, type Annot, type PageRef } from '../core/model';
 import type { Session } from '../core/session';
 import { sourceOcg } from '../features/images';
 import { h, toast } from '../ui/dom';
@@ -128,8 +128,6 @@ async function readNow(canvas: HTMLCanvasElement, lang: string): Promise<FoundWo
   }
 }
 
-const hasLetter = (t: string) => /\p{L}/u.test(t);
-
 export function wordsToText(words: FoundWord[]): string {
   const lines: string[] = [];
   let at = -1;
@@ -139,51 +137,86 @@ export function wordsToText(words: FoundWord[]): string {
   return lines.join('\n');
 }
 
-let activeLayer: { close(): void } | null = null;
+let activeLayer: { close(): void; pageId: string; el: HTMLElement } | null = null;
 export function closeWordLayer() { activeLayer?.close(); }
 
-/** Shows the words where they sit on the page. Positions are shares of the page, so zooming is fine. */
-export function showWordLayer(v: PageView, words: FoundWord[], place: { left: number; top: number; scale: number }) {
+/** A page that scrolled away and back gets its words again. */
+export function reattachWordLayer(v: PageView) {
+  if (activeLayer && activeLayer.pageId === v.page.id && !activeLayer.el.isConnected) v.el.append(activeLayer.el);
+}
+
+let measurer: CanvasRenderingContext2D | null = null;
+function naturalWidth(text: string): number {
+  measurer ??= document.createElement('canvas').getContext('2d');
+  if (!measurer) return text.length * 55;
+  measurer.font = '100px Arial, sans-serif';
+  return measurer.measureText(text).width || text.length * 55;
+}
+
+/** A word found in a picture, in page units, so search can find it. */
+export interface PageWord { text: string; x: number; y: number; w: number; h: number }
+
+/**
+ * Lays the words over the picture as invisible text, exactly where each one sits, the same way a
+ * PDF's own text works. Drag over them to select and copy, double-click one to look it up, and
+ * Ctrl+F finds them. Nothing is drawn on the page, so nothing is left behind.
+ */
+export function showWordLayer(v: PageView, words: FoundWord[], place: { left: number; top: number; scale: number }, onWords?: (found: PageWord[]) => void) {
   activeLayer?.close();
   const vp1 = viewportFor(v.page, 1);
-  const layer = h('div', { class: 'word-layer' });
-  const lines = new Map<number, string>();
-  for (const w of words) lines.set(w.line, `${lines.get(w.line) ?? ''} ${w.text}`.trim());
-  for (const w of words) {
-    const x = place.left + w.x0 / place.scale, y = place.top + w.y0 / place.scale;
-    const bw = (w.x1 - w.x0) / place.scale, bh = (w.y1 - w.y0) / place.scale;
-    const spot = h('button', {
-      class: `word-spot${hasLetter(w.text) ? '' : ' plain'}`, title: w.text, 'aria-label': `Look up ${w.text}`,
-      style: { left: `${(x / vp1.width) * 100}%`, top: `${(y / vp1.height) * 100}%`, width: `${(bw / vp1.width) * 100}%`, height: `${(bh / vp1.height) * 100}%` },
-      onclick: (e: MouseEvent) => {
-        e.stopPropagation();
-        layer.querySelectorAll('.word-spot.on').forEach(n => n.classList.remove('on'));
-        spot.classList.add('on');
-        const r = spot.getBoundingClientRect();
-        void showDictionary(w.text, { x: r.left, y: r.bottom, sentence: lines.get(w.line) });
-      },
+  const layer = h('div', { class: 'read-layer', 'aria-label': 'Words read from the picture' });
+  const lines = new Map<number, FoundWord[]>();
+  for (const w of words) (lines.get(w.line) ?? lines.set(w.line, []).get(w.line)!).push(w);
+  const pageWords: PageWord[] = [];
+  const pct = (n: number, of: number) => `${(n / of) * 100}%`;
+  for (const line of lines.values()) {
+    line.forEach((w, i) => {
+      const x = place.left + w.x0 / place.scale, y = place.top + w.y0 / place.scale;
+      const bw = (w.x1 - w.x0) / place.scale, bh = (w.y1 - w.y0) / place.scale;
+      // Font size follows the page through container units, so zooming keeps every word in place.
+      const font = bh * 0.86;
+      const stretch = bw / ((naturalWidth(w.text) / 100) * font || 1);
+      const span = h('span', {
+        style: {
+          left: pct(x, vp1.width), top: pct(y, vp1.height), height: pct(bh, vp1.height),
+          fontSize: `${(font / vp1.height) * 100}cqh`, transform: `scaleX(${Math.max(0.2, Math.min(5, stretch))})`,
+        },
+      }, i < line.length - 1 ? `${w.text} ` : w.text);
+      layer.append(span);
+      const p0 = toPdf(vp1, x, y + bh), p1 = toPdf(vp1, x + bw, y);
+      pageWords.push({ text: w.text, x: Math.min(p0[0], p1[0]), y: Math.min(p0[1], p1[1]), w: Math.abs(p1[0] - p0[0]), h: Math.abs(p1[1] - p0[1]) });
     });
-    spot.addEventListener('pointerdown', e => e.stopPropagation());
-    layer.append(spot);
+    layer.append(h('br'));
   }
+  onWords?.(pageWords);
+  // Double-click picks the word, as on any text. Look it up straight away.
+  layer.addEventListener('dblclick', () => {
+    const sel = window.getSelection();
+    const text = sel?.toString().trim();
+    if (!text || !sel?.rangeCount) return;
+    const r = sel.getRangeAt(0).getBoundingClientRect();
+    const line = (sel.anchorNode?.parentElement?.textContent ?? '').trim();
+    void showDictionary(text.replace(/[^\p{L}\p{N}'’-]+$/u, ''), { x: r.left, y: r.bottom, sentence: line });
+  });
   const text = wordsToText(words);
   const bar = h('div', { class: 'word-bar' },
-    h('span', null, `${words.length} word${words.length === 1 ? '' : 's'} found. Click one to look it up.`),
-    h('button', { class: 'btn small', onclick: () => { void navigator.clipboard?.writeText(text); toast('Text copied.', 'ok'); } }, 'Copy text'),
+    h('span', null, `Found ${words.length} word${words.length === 1 ? '' : 's'}. Select any of them to copy, double-click one to look it up, or find them with Ctrl+F.`),
+    h('button', { class: 'btn small', onclick: async () => {
+      try { await navigator.clipboard.writeText(text); toast('All the words were copied.', 'ok'); }
+      catch { toast('The words could not be copied. Select them and press Ctrl+C.', 'error'); }
+    } }, 'Copy all'),
     h('button', { class: 'btn small primary', onclick: () => close() }, 'Done'));
   bar.addEventListener('pointerdown', e => e.stopPropagation());
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.dict-pop')) { e.stopPropagation(); close(); } };
-  // The page can be closed or scrolled away, taking the spots with it. The bar goes too.
-  const watch = window.setInterval(() => { if (!layer.isConnected) close(); }, 1000);
   function close() {
-    clearInterval(watch);
+    if (window.getSelection()?.anchorNode && layer.contains(window.getSelection()!.anchorNode)) window.getSelection()?.removeAllRanges();
     layer.remove();
     bar.remove();
     document.removeEventListener('keydown', onKey, true);
-    activeLayer = null;
+    if (activeLayer?.el === layer) activeLayer = null;
   }
   document.addEventListener('keydown', onKey, true);
-  activeLayer = { close };
+  activeLayer = { close, pageId: v.page.id, el: layer };
   v.el.append(layer);
   document.body.append(bar);
 }

@@ -160,6 +160,27 @@ async function toSavePage(session: Session, p: PageRef): Promise<SavePage> {
   };
 }
 
+/**
+ * A file or voice note that was already in the PDF only has its bytes read when someone opens it.
+ * If it was moved or changed, it is written again, so its bytes are fetched first. Without this,
+ * moving a voice note and saving would lose the recording.
+ */
+async function loadPinnedFiles(session: Session, pages: PageRef[]) {
+  for (const p of pages) {
+    const src = p.source ? session.sources.get(p.source) : null;
+    if (!src) continue;
+    for (const a of p.annots) {
+      const f = a.attachment;
+      if (a.ghost || !f || f.blob || !f.fileId) continue;
+      try {
+        const got = await src.pdf.getAttachmentContent(f.fileId) as unknown as { content?: Uint8Array } | Uint8Array | null;
+        const bytes = got instanceof Uint8Array ? got : got?.content;
+        if (bytes) f.blob = new Blob([bytes as BlobPart], { type: f.mime || (f.voice ? 'audio/webm' : 'application/octet-stream') });
+      } catch (err) { console.warn('Pinned file', f.name, err); }
+    }
+  }
+}
+
 /** Produces the final file as a Blob and proves it opens before anyone relies on it. */
 export async function buildFile(
   session: Session,
@@ -179,6 +200,7 @@ export async function buildFile(
     if (src.password && !options.removePassword) keepPassword = src.password;
   }
   const expectPassword = options.encrypt?.userPassword ?? keepPassword;
+  await loadPinnedFiles(session, pages);
   const full = withDocumentParts(session, options, pages);
   await attachmentsAndMarks(session, full, pages);
 
@@ -222,10 +244,9 @@ export async function buildFile(
 function withDocumentParts(session: Session, options: BuildOptions, pages: PageRef[]): BuildOptions {
   const full: BuildOptions = { ...options, fontBase: fontBase() };
   if (pages === session.pages) {
-    const marks = session.bookmarks
+    full.bookmarks = session.bookmarks
       .map(b => ({ title: b.title, pageIndex: pages.findIndex(p => p.id === b.pageId) }))
       .filter(m => m.pageIndex >= 0);
-    if (marks.length) full.bookmarks = marks;
   }
   return full;
 }

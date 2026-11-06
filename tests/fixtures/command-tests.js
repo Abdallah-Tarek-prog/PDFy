@@ -646,7 +646,11 @@ await test('Pin a file to a spot, and a voice note', async () => {
   await ribbon('Comment', 'Voice note');
   await waitFor(() => document.querySelector('.rec-time'), 'recording window');
   await wait(600);
-  document.querySelector('.overlay-bg .primary').click();
+  ok(document.querySelector('.rec-ring'), 'a live level meter while recording');
+  document.querySelector('.overlay-bg .dialog-foot .primary').click();
+  // Listen back, then keep it.
+  await waitFor(() => document.querySelector('.rec-preview'), 'the listen-back window');
+  document.querySelector('.overlay-bg .dialog-foot .primary').click();
   await waitFor(() => app.tools.tool === 'attach', 'place voice note');
   await place();
   const voice = s.pages[0].annots.find(x => x.attachment?.voice);

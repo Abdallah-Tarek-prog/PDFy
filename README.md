@@ -7,8 +7,14 @@ Markdown notes. See [FEATURES.md](FEATURES.md) for what works today.
 ## How it is laid out
 
 Like the Xodo app: a title bar with the window buttons (there is no Windows title bar), one toolbar row
-with three modes (Read, Edit and Study), and an Actions menu with every document tool and a search box.
-The keyboard shortcuts are Xodo's, and F1 lists and changes them. Themes are under View.
+with two modes, Read and Edit, and an Actions menu with every document tool and a search box. Edit holds
+the markup tools and the study tools together (Markdown notes, equations, Read picture, word lookup).
+The keyboard shortcuts are Xodo's, and F1 lists and changes them.
+
+Beside the document tabs: the house button opens Home (recent files, documents closed in the last 7 days,
+and collections), and the + opens a file or creates a document. Settings (under More) has Appearance,
+Pen and tablet, Pages and moving around, Study tools, Quick setups, and General and help. A feature
+guide opens on the first start and once after each update.
 
 ## Run it
 
@@ -38,7 +44,15 @@ powershell -ExecutionPolicy Bypass -File scripts/install.ps1
 | Keyboard shortcuts | Xodo's keys, matched by key position, and the editor | `src/ui/shortcuts.ts` |
 | Window frame | No Windows caption, resize at every edge, header buttons | `host/FramelessWindow.cs` |
 | Themes | Nine interface themes | `public/themes.css`, `src/ui/themes.ts` |
-| Study tools | Dictionary, read from picture, equations, Markdown notes, fonts, colours, preference sets | `src/study/` |
+| Study tools | Dictionary, read from picture, equations, Markdown notes, fonts, colours, quick setups | `src/study/` |
+| Page editor | All pages full screen: tick, rotate, delete, insert, drag to reorder | `src/ui/pageeditor.ts` |
+| New documents | Blank, lined, grid, dotted, graph, Cornell and music paper, written as a small real PDF | `src/ui/createdoc.ts` |
+| Home and library | Recent files, recently closed (7 days), collections. Keeps links to files only | `src/ui/home.ts`, `src/features/library.ts` |
+| Settings | The Settings window, theme gallery and your own theme | `src/ui/settings.ts`, `src/ui/themes.ts` |
+| Feature guide | The illustrated tour | `src/ui/guide.ts` |
+| Voice notes | Recording with a level meter, and the player | `src/ui/voice.ts` |
+| Moving around | Ctrl+wheel and pinch zoom, middle-button drag, touch | `src/view/gestures.ts` |
+| Pen and tablet | Pen buttons, pen-only drawing, pointer shapes, per-colour sizes | `src/view/tools.ts` |
 | Notes and equations in saved files | Printed by the engine into a small PDF, placed as real vector text | `src/study/box.ts`, `host/Program.cs` |
 | Offline dictionary | Wiktionary data, split into small files that load on demand | `vendor-dict/`, built by `scripts/build-dictionary.mjs` |
 | Publishers' pages | The Windows app reads the Cambridge, Oxford or Longman page for a looked-up word. PDFy takes out the words, pronunciations and recording addresses and lays them out again | `host/Program.cs`, `src/study/publishers.ts` |
@@ -80,6 +94,9 @@ npm test
 | `node tests/browser-run.mjs --ui` | Real mouse and keyboard, in a hidden Edge window |
 | `node tests/browser-run.mjs --commands` | Every toolbar and menu command through its real dialog |
 | `node tests/browser-run.mjs --study` | Study tools: equations, Markdown, dictionary, read from picture, fonts, colours, sets |
+| `node tests/browser-run.mjs --update` | The 2026-11-06 additions: pen shortcut, colours, Read picture, voice notes, bookmarks, new documents, page editor, zoom, pen settings, Settings, forms, library, guide |
+| `node tests/browser-run.mjs --fixture forms-review-tests.js` | Form state, radio answers across pages, blank dropdowns and saved list selections. Other review fixtures: `navigation-review-tests.js`, `input-review-tests.js`, `session-review-tests.js` |
+| `node tests/browser-run.mjs --update-visual` | Screenshots of the new screens, into `tests/output/shots` |
 | `node tests/study-host-test.mjs` | Study tools in the real `PDFy.exe`: vector saving, Windows fonts, the reference window |
 | `node tests/browser-run.mjs --visual` | Screenshots of each screen and every theme, into `tests/output/shots` |
 | `node scripts/check-themes.mjs` | Readability contrast of every theme |
@@ -91,3 +108,4 @@ npm test
 
 Copy `dist` to `app/web` before the two exe tests. `node tests/make-fixtures.mjs` and
 `node tests/make-office-fixtures.mjs` recreate the test files.
+The host and study-host tests use temporary profiles to preserve your settings, recent files and recovery data.

@@ -6,7 +6,7 @@ import { toScreen, viewportFor, type Annot, type PageRef, type Viewport } from '
 import type { Change, Session } from '../core/session';
 import { h, s } from '../ui/dom';
 import { annotNode, selectionNode } from './overlay';
-import { buildWidgets, loadGhosts } from './widgets';
+import { buildOwnFields, buildWidgets, loadGhosts } from './widgets';
 import { TextLayer } from 'pdfjs-dist';
 
 const GAP = 14;
@@ -109,11 +109,7 @@ export class Viewer {
     host.addEventListener('scroll', () => this.schedule(), { passive: true });
     this.ro = new ResizeObserver(() => { if (this.session) this.relayout(true); });
     this.ro.observe(host);
-    host.addEventListener('wheel', e => {
-      if (!e.ctrlKey || !this.session) return;
-      e.preventDefault();
-      this.zoomAt(this.scale * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
-    }, { passive: false });
+    // Zooming and moving with the wheel, touchpad, middle button and fingers: see gestures.ts.
   }
 
   attach(session: Session | null) {
@@ -314,6 +310,7 @@ export class Viewer {
     this.drawSelection(v);
     this.hooks.drawMatches?.(v);
     if (v.widgetsLoaded) buildWidgets(this, v);
+    buildOwnFields(this, v);
   }
 
   /** Text and widgets are laid out against the full page, so a cropped page shifts them. */
@@ -332,6 +329,7 @@ export class Viewer {
   drawAnnots(v: PageView) {
     v.annotsG.replaceChildren(...v.page.annots.map(annotNode));
     this.drawSelection(v);
+    buildOwnFields(this, v);
   }
 
   replaceAnnotNode(v: PageView, a: Annot) {
@@ -452,6 +450,8 @@ export class Viewer {
       }
     } catch (err) {
       if (canvas) { canvas.width = 0; }
+      // A document closed while its page was being drawn is not a failure.
+      if (this.session !== session) return;
       if (!isCancelled(err)) {
         console.error('Page render failed', v.page.index, err);
         v.failed = true;

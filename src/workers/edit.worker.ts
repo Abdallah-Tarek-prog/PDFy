@@ -4,7 +4,7 @@
 
 import {
   PDFDocument, PDFName, PDFArray, PDFDict, PDFRef, PDFNumber, PDFHexString, PDFString, PDFRawStream, PDFStream,
-  PDFFont, PDFPage, StandardFonts,
+  PDFFont, PDFPage, StandardFonts, PDFRadioGroup,
   PDFContext, PDFInvalidObject, TextRenderingMode,
   degrees, pushGraphicsState, popGraphicsState, concatTransformationMatrix, drawObject,
   beginText, endText, setFontAndSize, setTextRenderingMode, setCharacterSqueeze, setTextMatrix, showText,
@@ -188,7 +188,7 @@ async function build(job: BuildJob, warnings: string[], progress: (p: number) =>
     if (m.keywords !== undefined) doc.setKeywords(m.keywords.split(',').map(s => s.trim()).filter(Boolean));
   }
   if (options.stripMetadata) stripMetadata(doc);
-  if (options.bookmarks?.length) addBookmarks(doc, final, options.bookmarks);
+  if (options.bookmarks) addBookmarks(doc, final, options.bookmarks);
   for (const f of options.attachments ?? []) {
     await doc.attach(new Uint8Array(f.bytes), f.name, { mimeType: f.mime || 'application/octet-stream', creationDate: new Date(), modificationDate: new Date() });
   }
@@ -262,11 +262,44 @@ async function addSignatureSlot(doc: PDFDocument, pages: PDFPage[], sig: NonNull
   acro.dict.set(N('SigFlags'), PDFNumber.of(3));
 }
 
+/**
+ * PDFy's own bookmarks are marked, and drawn in a colour of rgb(1, 2, 3), which looks black. The
+ * colour is how the viewer recognises them on reopening; the mark is how a save finds and replaces
+ * the ones written last time.
+ */
+export const BOOKMARK_COLOUR = [1, 2, 3];
+
+/** Takes out the bookmarks PDFy wrote on an earlier save, keeping the document's own contents. */
+function dropOwnBookmarks(doc: PDFDocument, root: PDFDict) {
+  const ctx = doc.context;
+  const kept: PDFRef[] = [];
+  let removed = 0;
+  let ref = root.get(N('First'));
+  for (let guard = 0; ref instanceof PDFRef && guard < 100000; guard++) {
+    const item = ctx.lookup(ref);
+    if (!(item instanceof PDFDict)) break;
+    if (item.get(N('PDFyMark'))) removed++; else kept.push(ref);
+    ref = item.get(N('Next'));
+  }
+  if (!removed) return;
+  kept.forEach((r, i) => {
+    const item = ctx.lookup(r) as PDFDict;
+    if (i > 0) item.set(N('Prev'), kept[i - 1]); else item.delete(N('Prev'));
+    if (i < kept.length - 1) item.set(N('Next'), kept[i + 1]); else item.delete(N('Next'));
+  });
+  if (kept.length) { root.set(N('First'), kept[0]); root.set(N('Last'), kept[kept.length - 1]); }
+  else { root.delete(N('First')); root.delete(N('Last')); }
+  const count = root.lookup(N('Count'));
+  root.set(N('Count'), PDFNumber.of(Math.max(0, Math.abs(count instanceof PDFNumber ? count.asNumber() : 0) - removed)));
+}
+
 /** User bookmarks become part of the file's contents list, after anything already there. */
 function addBookmarks(doc: PDFDocument, pages: PDFPage[], marks: NonNullable<BuildOptions['bookmarks']>) {
   const ctx = doc.context;
   let root = doc.catalog.lookup(N('Outlines'));
   let rootRef = doc.catalog.get(N('Outlines'));
+  if (root instanceof PDFDict) dropOwnBookmarks(doc, root);
+  if (!marks.length) return;
   if (!(root instanceof PDFDict) || !(rootRef instanceof PDFRef)) {
     root = ctx.obj({ Type: 'Outlines', Count: 0 });
     rootRef = ctx.register(root as PDFDict);
@@ -278,7 +311,7 @@ function addBookmarks(doc: PDFDocument, pages: PDFPage[], marks: NonNullable<Bui
   for (const m of marks) {
     const page = pages[m.pageIndex];
     if (!page) continue;
-    const item = ctx.obj({ Parent: rootRef, Dest: [page.ref, N('Fit')] }) as PDFDict;
+    const item = ctx.obj({ Parent: rootRef, Dest: [page.ref, N('Fit')], PDFyMark: true, C: BOOKMARK_COLOUR.map(v => v / 255) }) as PDFDict;
     item.set(N('Title'), PDFHexString.fromText(m.title));
     const ref = ctx.register(item);
     if (prev) {
@@ -643,7 +676,7 @@ async function addAnnot(doc: PDFDocument, page: PDFPage, a: SaveAnnot, fonts: Fo
     page.node.addAnnot(ref);
     return;
   }
-  if (a.field) { addField(doc, page, a); return; }
+  if (a.field) { await addField(doc, page, a, fonts); return; }
   if (a.attachmentBytes) { addFileNote(doc, page, a); return; }
 
   const ap = await buildAppearance(doc, a, fonts);
@@ -763,31 +796,83 @@ function addFileNote(doc: PDFDocument, page: PDFPage, a: SaveAnnot) {
   page.node.addAnnot(ctx.register(dict));
 }
 
-function addField(doc: PDFDocument, page: PDFPage, a: SaveAnnot) {
+/**
+ * Draws a filled-in answer into its field, so it shows and prints in every app. Plain Latin text
+ * uses the standard font; anything else uses a font from this PC. If drawing fails, the answer is
+ * still stored, and other apps are asked to draw it themselves.
+ */
+async function drawAnswer(doc: PDFDocument, fonts: FontBox, update: (font: PDFFont) => void, text: string) {
+  void doc;
+  try {
+    const plain = [...text].every(ch => { const c = ch.codePointAt(0)!; return c === 10 || c === 13 || (c >= 32 && c < 127) || (c >= 160 && c <= 255); });
+    const font = plain ? await fonts.get(false) : await fonts.getEmbedded(false);
+    // Only draw when the font has every letter, so an answer never prints as empty boxes. Otherwise
+    // the answer is still stored in the field, and PDF apps that draw fields themselves show it.
+    if (!font) return;
+    const has = new Set(font.getCharacterSet());
+    if (![...text].every(ch => ch === '\n' || ch === '\r' || has.has(ch.codePointAt(0)!))) return;
+    update(font);
+  } catch (err) {
+    console.warn('Field appearance', err);
+  }
+}
+
+async function addField(doc: PDFDocument, page: PDFPage, a: SaveAnnot, fonts: FontBox) {
   const form = doc.getForm();
   const f = a.field!;
   const box = { x: a.rect[0], y: a.rect[1], width: a.rect[2] - a.rect[0], height: a.rect[3] - a.rect[1] };
-  // Names must be unique. A repeat is a page copy, so give it a suffix.
+  // Names must be unique, except for radio choices: those with one name are one question.
   let name = f.name || `field_${a.id}`;
+  const group = f.type === 'radio' ? form.getFieldMaybe(name) : undefined;
+  if (group && f.type === 'radio' && group instanceof PDFRadioGroup) {
+    const taken = group.getOptions();
+    let option = f.options?.[0] ?? 'Option1';
+    for (let i = 2; taken.includes(option); i++) option = `${f.options?.[0] ?? 'Option'} ${i}`;
+    group.addOptionToPage(option, page, box);
+    if (f.value === true) group.select(option);
+    return;
+  }
   for (let i = 2; form.getFieldMaybe(name); i++) name = `${f.name}_${i}`;
+  // What was typed or ticked before saving goes into the file as the field's value.
+  const value = f.value;
+  const text = typeof value === 'string' ? value : '';
   switch (f.type) {
-    case 'text': form.createTextField(name).addToPage(page, box); break;
-    case 'check': form.createCheckBox(name).addToPage(page, box); break;
+    case 'text': {
+      const t = form.createTextField(name);
+      if (text.includes('\n')) t.enableMultiline();
+      t.addToPage(page, box);
+      if (text) { t.setText(text); await drawAnswer(doc, fonts, f => t.updateAppearances(f), text); }
+      break;
+    }
+    case 'check': {
+      const c = form.createCheckBox(name);
+      c.addToPage(page, box);
+      if (value === true) c.check();
+      break;
+    }
     case 'radio': {
       const g = form.createRadioGroup(name);
-      g.addOptionToPage(f.options?.[0] ?? 'Option1', page, box);
+      const option = f.options?.[0] ?? 'Option1';
+      g.addOptionToPage(option, page, box);
+      if (value === true) g.select(option);
       break;
     }
     case 'dropdown': {
       const d = form.createDropdown(name);
-      d.addOptions(f.options?.length ? f.options : ['Option 1', 'Option 2']);
+      const options = f.options?.length ? f.options : ['Option 1', 'Option 2'];
+      d.addOptions(options);
       d.addToPage(page, box);
+      if (text && options.includes(text)) { d.select(text); await drawAnswer(doc, fonts, f => d.updateAppearances(f), text); }
       break;
     }
     case 'list': {
       const l = form.createOptionList(name);
-      l.addOptions(f.options?.length ? f.options : ['Option 1', 'Option 2']);
+      const options = f.options?.length ? f.options : ['Option 1', 'Option 2'];
+      l.addOptions(options);
+      l.enableMultiselect();
       l.addToPage(page, box);
+      const chosen = Array.isArray(value) ? value.filter(x => options.includes(x)) : [];
+      if (chosen.length) { l.select(chosen); await drawAnswer(doc, fonts, f => l.updateAppearances(f), chosen.join(' ')); }
       break;
     }
     case 'signature': {

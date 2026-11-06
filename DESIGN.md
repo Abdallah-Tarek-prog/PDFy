@@ -4,6 +4,10 @@
 > Xodo's structure: the same tool layout, Xodo's keyboard shortcuts, and a window with no Windows title
 > bar. PDFy keeps its own colours. The rest of this file is the earlier "page margin" idea. It is kept as
 > a possible later addition (notes level with their line), not as the plan.
+>
+> **Later on 2026-11-06.** The Study toolbar was merged into Edit, a full-screen page editor and a Home
+> screen with collections were added, and Settings became a window with sections and theme pictures.
+> README.md and FEATURES.md describe what is built.
 
 **We will design completely new UI pages and a completely new look for PDFy, far from Xodo, Adobe Acrobat and similar editors. It must be unique, distinctive and good to use.** The ribbon goes. Every feature stays reachable.
 

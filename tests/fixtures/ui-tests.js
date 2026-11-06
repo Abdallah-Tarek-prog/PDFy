@@ -2,6 +2,11 @@
 const app = window.__pdfy, A = window.__api;
 const results = [];
 const wait = ms => new Promise(r => setTimeout(r, ms));
+const until = async (fn, ms = 6000, what = 'condition') => {
+  const t0 = performance.now();
+  while (performance.now() - t0 < ms) { const v = await fn(); if (v) return v; await wait(50); }
+  throw new Error(`Timed out waiting for ${what}`);
+};
 const fx = async name => { const r = await fetch(`/fixtures/${name}`); return new File([await r.blob()], name, { type: 'application/pdf' }); };
 const closeAll = async () => { for (const s of [...app.sessions]) { s.dirty = false; await app.closeSession(s); } };
 const ok = (v, msg) => { if (!v) throw new Error(msg ?? 'check failed'); };
@@ -840,9 +845,11 @@ await test('Comment replies and status survive save and reopen', async () => {
 
 await test('Settings and reopening at the last page', async () => {
   await closeAll();
-  void app.settingsDialog();
+  void app.settingsDialog('general');
   await wait(80);
-  document.querySelector('#f-author').value = 'Someone New';
+  const name = document.querySelector('.settings .st-input');
+  name.value = 'Someone New';
+  name.dispatchEvent(new Event('change'));
   document.querySelector('.overlay-bg .primary').click();
   await wait(30);
   eq(app.authorName(), 'Someone New', 'name saved');
@@ -858,12 +865,15 @@ await test('Settings and reopening at the last page', async () => {
 
 await test('Keyboard: new, next document, close', async () => {
   await closeAll();
+  // Ctrl+N opens Create document, as in Xodo. Enter makes a blank page straight away.
   await key('n', 'KeyN', 78, 2);
-  await wait(60);
-  eq(app.sessions.length, 1, 'Ctrl+N');
+  await until(() => document.querySelector('.create-doc .cd-title') === document.activeElement, 3000, 'Create document');
+  await key('Enter', 'Enter', 13);
+  await until(() => app.sessions.length === 1, 4000, 'Ctrl+N then Enter');
   await key('n', 'KeyN', 78, 2);
-  await wait(60);
-  eq(app.sessions.length, 2);
+  await until(() => document.querySelector('.create-doc .cd-title') === document.activeElement, 3000, 'Create document');
+  await key('Enter', 'Enter', 13);
+  await until(() => app.sessions.length === 2, 4000, 'a second document');
   const second = app.session;
   await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: 2 });
   await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: 2 });

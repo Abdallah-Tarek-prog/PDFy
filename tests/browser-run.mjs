@@ -1,5 +1,5 @@
 // Runs the in-app feature test in a hidden Edge window, so nothing appears on screen.
-// Usage: node tests/browser-run.mjs [test-file.js] [--shots]
+// Usage: node tests/browser-run.mjs [test-name-pattern] [--fixture test-file.js]
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,8 +11,15 @@ const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const WEB_PORT = 5198, CDP_PORT = 9444;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const visual = process.argv.includes('--visual');
-const testFile = visual ? 'visual.js' : process.argv.includes('--study') ? 'study-tests.js' : process.argv.includes('--ui') ? 'ui-tests.js' : process.argv.includes('--commands') ? 'command-tests.js' : 'browser-tests.js';
-const only = process.argv.slice(2).find(a => !a.startsWith('--')) ?? '';
+const args = process.argv.slice(2);
+const fixtureIndex = args.indexOf('--fixture');
+const fixture = fixtureIndex >= 0 ? args[fixtureIndex + 1] : null;
+if (fixtureIndex >= 0 && (!fixture || !/^[a-zA-Z0-9_-]+\.js$/.test(fixture))) {
+  console.error('--fixture needs a JavaScript filename from tests/fixtures.');
+  process.exit(1);
+}
+const testFile = fixture ?? (visual ? 'visual.js' : args.includes('--update-visual') ? 'update-visual.js' : args.includes('--update') ? 'update-tests.js' : args.includes('--study') ? 'study-tests.js' : args.includes('--ui') ? 'ui-tests.js' : args.includes('--commands') ? 'command-tests.js' : 'browser-tests.js');
+const only = args.find((a, i) => !a.startsWith('--') && (fixtureIndex < 0 || i !== fixtureIndex + 1)) ?? '';
 
 // A test browser left over from an earlier run would answer instead of this one, with old code loaded.
 try {
@@ -28,7 +35,7 @@ const edge = spawn(EDGE, [
   '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-sync', '--disable-background-networking',
   '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
   '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--enable-precise-memory-info',
-  `http://localhost:${WEB_PORT}/`,
+  `http://localhost:${WEB_PORT}/?test=1`,
 ], { stdio: 'ignore' });
 
 let exitCode = 1;

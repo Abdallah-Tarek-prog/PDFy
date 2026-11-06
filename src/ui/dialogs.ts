@@ -14,6 +14,8 @@ export function openDialog<T>(title: string, body: Node, buttons: DialogButton<T
       resolve(v);
     };
     const key = (e: KeyboardEvent) => {
+      // Only the window on top answers, so Escape in a window opened from another closes just that one.
+      if (overlay !== [...document.querySelectorAll('.overlay-bg')].pop()) return;
       if (e.key === 'Escape') { e.stopPropagation(); close(dismissValue); }
       if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
         const p = buttons.find(b => b.primary);

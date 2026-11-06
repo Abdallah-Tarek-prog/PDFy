@@ -2,7 +2,8 @@
 // the engine into real vector text. Also checks the font list from Windows and the reference window.
 // Copy dist to app/web first.
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,7 +44,8 @@ async function connect() {
   throw new Error('The app did not start');
 }
 
-const child = spawn(exe, [], { env: { ...process.env, PDFY_DEBUG_PORT: String(PORT), PDFY_DEV: '1' }, stdio: 'ignore' });
+const work = mkdtempSync(join(tmpdir(), 'pdfy-study-host-'));
+const child = spawn(exe, [], { env: { ...process.env, PDFY_DEBUG_PORT: String(PORT), PDFY_DEV: '1', PDFY_TEST_DATA_DIR: work }, stdio: 'ignore' });
 try {
   const run = await connect();
   for (let i = 0; i < 60 && !(await run('!!window.__pdfy').catch(() => false)); i++) await wait(250);
@@ -145,6 +147,8 @@ try {
   check('Runner', false, err.message);
 } finally {
   child.kill();
+  await wait(1200);
+  try { rmSync(work, { recursive: true, force: true }); } catch { /* A runtime helper may still be exiting. */ }
 }
 const failed = results.filter(r => !r.ok).length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);

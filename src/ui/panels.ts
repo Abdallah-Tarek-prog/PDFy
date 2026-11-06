@@ -8,6 +8,7 @@ import { searchDocument, type Match } from '../features/search';
 import { followDest, loadGhosts } from '../view/widgets';
 import type { App } from '../app';
 import { clear, downloadBlob, h, icon, pickFiles, safe } from './dom';
+import { getSettings } from '../core/settings';
 
 export type PanelId = 'thumbs' | 'outline' | 'comments' | 'bookmarks' | 'search' | 'layers' | 'attachments';
 
@@ -27,7 +28,8 @@ export class Panels {
   readonly rail: HTMLElement;
   readonly host: HTMLElement;
   private panels: Record<PanelId, Panel>;
-  active: PanelId | null = 'thumbs';
+  /** With the full-screen page editor chosen, the window opens with the whole width for the page, as Xodo does. */
+  active: PanelId | null = getSettings().pagesView === 'sidebar' ? 'thumbs' : null;
   private buttons = new Map<PanelId, HTMLButtonElement>();
   search: SearchPanel;
   thumbs: ThumbPanel;
@@ -80,7 +82,7 @@ export class Panels {
 // ---- Thumbnails ----
 
 /** Paints edits onto a thumbnail, so pasted images and markups show in the page list. */
-async function drawAnnotsOnCanvas(c: HTMLCanvasElement, page: PageRef, k: number) {
+export async function drawAnnotsOnCanvas(c: HTMLCanvasElement, page: PageRef, k: number) {
   const ctx = c.getContext('2d');
   if (!ctx) return;
   const [a0, b0, c0, d0, e0, f0] = viewportFor(page, k).m;
@@ -378,7 +380,9 @@ class OutlinePanel implements Panel {
     const src = [...session.sources.values()][0];
     let items: any[] | null = null;
     try { items = src ? await src.pdf.getOutline() : null; } catch { /* Shown as empty. */ }
-    if (!items?.length) { this.body.append(h('p', { class: 'empty' }, 'This document has no contents list.')); return; }
+    // PDFy's own bookmarks (drawn in rgb(1, 2, 3)) are shown under Bookmarks instead.
+    items = (items ?? []).filter(it => !(it.color && it.color[0] === 1 && it.color[1] === 2 && it.color[2] === 3));
+    if (!items.length) { this.body.append(h('p', { class: 'empty' }, 'This document has no contents list.')); return; }
     this.body.append(this.list(items, src.pdf));
   }
 
@@ -469,7 +473,11 @@ class CommentsPanel implements Panel {
     return h('div', { class: 'comment', role: 'button', tabindex: 0, onclick: open },
       h('div', { class: 'comment-head' },
         h('span', { class: 'swatch', style: { background: a.color } }),
-        h('strong', null, KIND_NAMES[a.kind] ?? a.kind),
+        h('strong', null, a.attachment?.voice ? 'Voice note' : KIND_NAMES[a.kind] ?? a.kind),
+        a.kind === 'attachment' ? h('button', {
+          class: 'icon-btn small', title: a.attachment?.voice ? 'Play' : 'Open', 'aria-label': a.attachment?.voice ? 'Play the voice note' : 'Open the file',
+          onclick: (e: Event) => { e.stopPropagation(); open(); requestAnimationFrame(() => this.app.openAttachment(a)); },
+        }, icon(a.attachment?.voice ? 'play' : 'attach', 13)) : null,
         h('span', { class: 'muted' }, `Page ${index + 1}`),
         h('button', {
           class: 'icon-btn small', title: 'Delete', 'aria-label': 'Delete',
@@ -512,39 +520,48 @@ class BookmarksPanel implements Panel {
   constructor(private app: App) {
     this.el = h('section', { class: 'panel' },
       h('header', { class: 'panel-head' }, h('h3', null, 'Bookmarks'),
-        h('div', { class: 'panel-tools' }, h('button', { class: 'icon-btn', title: 'Bookmark this page', 'aria-label': 'Bookmark this page', onclick: () => this.add() }, icon('plus', 16)))),
+        h('div', { class: 'panel-tools' }, h('button', { class: 'icon-btn', title: 'Bookmark this page (Ctrl+B)', 'aria-label': 'Bookmark this page', onclick: () => this.add() }, icon('bookmarkAdd', 16)))),
       this.body);
   }
 
   show() { this.draw(); }
-  change(kind: string) { if (kind === 'structure') this.draw(); }
+  change(kind: string) { if (kind === 'structure' || kind === 'bookmarks' || kind === 'page') this.draw(); }
 
   private add() {
-    const s = this.app.session;
-    if (!s) return;
-    const page = s.pages[this.app.viewer.current];
-    if (!page) return;
-    s.bookmarks.push({ id: uid(), pageId: page.id, title: `Page ${this.app.viewer.current + 1}` });
-    s.markDirty();
+    if (!this.app.isBookmarked()) this.app.toggleBookmark();
     this.draw();
+    // Ready to be named straight away.
+    const s = this.app.session;
+    const page = s?.pages[this.app.viewer.current];
+    const b = page && s?.bookmarks.find(x => x.pageId === page.id);
+    if (b) (this.body.querySelector(`[data-bm="${b.id}"] .bm-title`) as HTMLInputElement | null)?.select();
   }
 
   private draw() {
     const s = this.app.session;
+    if (this.el.hidden) return;
     clear(this.body);
-    if (!s?.bookmarks.length) { this.body.append(h('p', { class: 'empty' }, 'No bookmarks yet. Use + to bookmark the current page.')); return; }
-    for (const b of s.bookmarks) {
-      const index = s.pages.findIndex(p => p.id === b.pageId);
-      if (index < 0) continue;
-      const title = h('input', { class: 'bm-title', value: b.title, 'aria-label': 'Bookmark name' });
-      title.addEventListener('change', () => { b.title = title.value; s.markDirty(); });
-      this.body.append(h('div', { class: 'bm-row' },
-        h('button', { class: 'icon-btn small', title: `Go to page ${index + 1}`, 'aria-label': `Go to page ${index + 1}`, onclick: () => this.app.viewer.goTo(index) }, icon('bookmark', 14)),
+    if (!s) return;
+    const rows = s.bookmarks.map(b => ({ b, index: s.pages.findIndex(p => p.id === b.pageId) })).filter(r => r.index >= 0).sort((x, y) => x.index - y.index);
+    if (!rows.length) {
+      this.body.append(h('div', { class: 'empty bm-empty' }, icon('bookmark', 28),
+        h('p', null, 'No bookmarks yet.'),
+        h('p', { class: 'muted' }, 'Press Ctrl+B, or the ribbon beside the page number, to bookmark the page you are on. Bookmarks are saved inside the PDF, so other apps show them too.')));
+      return;
+    }
+    for (const { b, index } of rows) {
+      const title = h('input', { class: 'bm-title', value: b.title, 'aria-label': 'Bookmark name', title: 'Click to rename' });
+      title.addEventListener('change', () => { b.title = title.value.trim() || `Page ${index + 1}`; s.markDirty(); });
+      title.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' || e.key === 'Escape') title.blur(); });
+      const row = h('div', { class: `bm-row${index === this.app.viewer.current ? ' current' : ''}`, 'data-bm': b.id },
+        h('button', { class: 'bm-go', title: `Go to page ${index + 1}`, 'aria-label': `Go to page ${index + 1}`, onclick: () => this.app.viewer.goTo(index) },
+          icon('bookmark', 14), h('span', { class: 'bm-page' }, String(index + 1))),
         title,
         h('button', {
           class: 'icon-btn small', title: 'Remove', 'aria-label': 'Remove',
-          onclick: () => { s.bookmarks = s.bookmarks.filter(x => x !== b); s.markDirty(); this.draw(); },
-        }, icon('close', 14))));
+          onclick: () => { s.bookmarks = s.bookmarks.filter(x => x !== b); s.markDirty(); this.draw(); this.app.syncBookmarks(); },
+        }, icon('close', 14)));
+      this.body.append(row);
     }
   }
 }

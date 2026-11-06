@@ -25,6 +25,9 @@ import { onFontMessage, restoreAddedFonts, installedFonts, addFontFiles } from '
 import { ensureRichCss } from './study/mdthemes';
 import { onPageMessage } from './study/publishers';
 import * as study from './study/testing';
+import * as library from './features/library';
+import { makePaperPdf } from './ui/createdoc';
+import { GUIDE_VERSION } from './ui/guide';
 
 // Last line of defence. An unexpected error shows a message and the app carries on.
 window.addEventListener('error', e => {
@@ -60,5 +63,5 @@ window.chrome?.webview?.postMessage({ type: 'ready' });
 
 // Used by the automated tests.
 if (location.hostname === 'localhost' || new URLSearchParams(location.search).has('test')) {
-  Object.assign(window, { __pdfy: app, __api: { ...jobs, ...engine, ...recovery, ...images, ...decor, ...convert, ...compare, ...xfdf, ...search, ...decoders, ...detect, ...batch, ...ocr, ...office, ...sign, ...docmodel, ...docxEditor, ...study, installedFonts, addFontFiles, applyUiTheme, unzipSync, strFromU8, Session } });
+  Object.assign(window, { __pdfy: app, __api: { ...jobs, ...engine, ...recovery, ...images, ...decor, ...convert, ...compare, ...xfdf, ...search, ...decoders, ...detect, ...batch, ...ocr, ...office, ...sign, ...docmodel, ...docxEditor, ...study, ...library, makePaperPdf, GUIDE_VERSION, installedFonts, addFontFiles, applyUiTheme, unzipSync, strFromU8, Session } });
 }

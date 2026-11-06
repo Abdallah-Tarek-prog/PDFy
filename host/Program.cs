@@ -25,7 +25,10 @@ internal static class Program
     }
 
     internal static readonly string DataDir =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDFy");
+        Environment.GetEnvironmentVariable("PDFY_DEV") == "1" &&
+        Environment.GetEnvironmentVariable("PDFY_TEST_DATA_DIR") is { Length: > 0 } testDataDir
+            ? Path.GetFullPath(testDataDir)
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDFy");
 
     internal static void Log(string message)
     {

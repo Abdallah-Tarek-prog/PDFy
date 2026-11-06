@@ -11,7 +11,7 @@ const required = [
   'canvas-bg', 'page-shadow', 'shadow', 'ok', 'warn', 'danger',
 ];
 const palettes = new Map();
-for (const [, id, body] of css.matchAll(/:root\[data-ui-theme="([^"]+)"\]\s*\{([^}]+)\}/g)) {
+for (const [, id, body] of css.matchAll(/\[data-ui-theme="([^"]+)"\]\s*\{([^}]+)\}/g)) {
   if (palettes.has(id)) throw new Error(`Duplicate UI theme: ${id}`);
   const values = Object.fromEntries([...body.matchAll(/(--[\w-]+|color-scheme):\s*([^;]+);/g)]
     .map(([, key, value]) => [key.replace(/^--/, ''), value.trim()]));

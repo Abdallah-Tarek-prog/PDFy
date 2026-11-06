@@ -460,11 +460,15 @@ kbd { font: 11px var(--font); padding: 0 4px; border: 1px solid var(--border); b
 .dict-source { font-size: 10.5px; color: var(--muted); }
 
 /* Words read from a picture */
-.word-layer { position: absolute; inset: 0; z-index: 15; pointer-events: none; }
-.word-spot { position: absolute; pointer-events: auto; border-radius: 3px; background: rgb(255 212 0 / .2); box-shadow: inset 0 -1.5px 0 rgb(200 150 0 / .75); cursor: pointer; }
-.word-spot:hover, .word-spot:focus-visible { background: rgb(255 212 0 / .42); }
-.word-spot.on { background: rgb(255 170 0 / .55); }
-.word-spot.plain { background: none; box-shadow: none; }
+/* Words read from a picture: invisible text that can be selected, copied and searched. Only a
+   selection shows, so nothing stays drawn on the page. */
+.read-layer { position: absolute; inset: 0; z-index: 4; container-type: size; line-height: 1; user-select: text; -webkit-user-select: text; pointer-events: none; }
+.read-layer span { position: absolute; color: transparent; white-space: pre; transform-origin: 0 0; font-family: Arial, sans-serif; cursor: text; pointer-events: auto; }
+.read-layer br { position: absolute; }
+.read-layer ::selection { background: rgb(64 140 255 / .35); color: transparent; }
+.viewer:not([data-mode=select]) .read-layer, .viewer:not([data-mode=select]) .read-layer span { pointer-events: none; user-select: none; }
+.plain-list { margin: 8px 0 0 18px; padding: 0; }
+.plain-list li { margin: 2px 0; }
 .word-bar { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 650; display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
 
 /* Markdown source while typing */

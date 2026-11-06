@@ -281,7 +281,7 @@ await test('Dictionary: with lookup on, selecting a word on the page opens it', 
 
 // ---- Reading a picture ----
 
-await test('Read picture: words in a pasted dark screenshot become clickable', async () => {
+await test('Read picture: words in a pasted dark screenshot become selectable text', async () => {
   await closeAll();
   await paste(await mockGemini());
   await until(() => app.session?.pages[0]?.annots.some(a => a.kind === 'image'), 6000, 'the pasted image');
@@ -295,16 +295,21 @@ await test('Read picture: words in a pasted dark screenshot become clickable', a
   ok(/convert|screenshot|colours|gemini/.test(text), `expected words found in: ${text.slice(0, 120)}`);
   const v = app.viewer.views.get(page.id);
   A.showWordLayer(v, words, shot);
-  const spot = [...document.querySelectorAll('.word-spot')].find(b => /^[A-Za-z]{5,}$/.test(b.title));
-  ok(spot, 'a clickable word');
+  const spot = [...document.querySelectorAll('.read-layer span')].find(b => /^[A-Za-z]{5,}\s?$/.test(b.textContent));
+  ok(spot, 'a word laid over the picture');
   const r = spot.getBoundingClientRect();
   ok(r.width > 2 && r.height > 2, 'placed over the picture');
-  spot.click();
+  // Double-clicking a word selects it and looks it up.
+  const range = document.createRange();
+  range.selectNodeContents(spot);
+  getSelection().removeAllRanges();
+  getSelection().addRange(range);
+  spot.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   await until(() => document.querySelector('.dict-pop .dict-word'), 6000, 'the pop-up');
   document.querySelector('.word-bar .primary').click();
-  ok(!document.querySelector('.word-layer'), 'Done removes the spots');
+  ok(!document.querySelector('.read-layer'), 'Done removes the words');
   s.dirty = false;
-  return `${words.length} words, clicked “${spot.title}”`;
+  return `${words.length} words, looked up “${spot.textContent.trim()}”`;
 });
 
 // ---- Fonts and colours ----
@@ -386,17 +391,18 @@ await test('Colour picker: any colour by code, palette, and remembered', async (
 
 // ---- Preference sets ----
 
-await test('Preference sets: one click sets fonts, colours, note look and lookup', async () => {
+await test('Quick setups: one click sets fonts, colours, note look and lookup', async () => {
   const sets = A.allSets();
   ok(sets.length >= 5, 'ready-made sets');
-  void app.settingsDialog();
-  await until(() => document.querySelector('.set-card'), 3000, 'the preferences');
+  void app.settingsDialog('setups');
+  await until(() => document.querySelector('.set-card'), 3000, 'the quick setups');
+  const uiBefore = document.documentElement.dataset.uiTheme;
   const night = document.querySelector('[data-set="night"]');
   night.click();
   await until(() => app.reading === 'night', 3000, 'night reading');
   eq(app.tools.style('highlight').color, sets.find(x => x.id === 'night').highlight, 'highlight colour');
   ok(app.study.lookupOn, 'lookup on');
-  eq(document.documentElement.dataset.theme, 'dark', 'dark interface');
+  eq(document.documentElement.dataset.uiTheme, uiBefore, 'the interface theme is left alone');
   document.querySelector('.overlay-bg .dialog-foot .primary').click();
   await wait(50);
   // Back to how the other tests expect it.
@@ -407,14 +413,14 @@ await test('Preference sets: one click sets fonts, colours, note look and lookup
   for (const k of ['pdfy.styles', 'pdfy.settings', 'pdfy.uiTheme']) localStorage.removeItem(k);
 });
 
-await test('Study tab: every button is there and works without a crash', async () => {
+await test('Study tools on the Edit toolbar: every one is there and works without a crash', async () => {
   await closeAll();
   const s = app.newDocument();
   await settle();
-  app.setMode('study');
+  app.setMode('edit');
   await wait(40);
-  const labels = [...document.querySelectorAll('.tb-btn')].map(b => b.dataset.label);
-  for (const l of ['Word lookup', 'Read picture', 'Markdown note', 'Equation', 'Note themes', 'Preferences']) ok(labels.includes(l), `${l} button`);
+  const labels = app.row.commands().map(c => c.label);
+  for (const l of ['Word lookup', 'Read picture', 'Markdown', 'Equation']) ok(labels.includes(l), `${l} button`);
   (await app.revealCommand('Note themes')).click();
   await until(() => document.querySelector('.theme-dialog .md-box h1'), 4000, 'the theme editor with a preview');
   // Editing a ready-made theme makes your own copy.
@@ -637,8 +643,8 @@ await test('Screens: study tools, for checking by eye', async () => {
   await wait(500);
   await window.__shot('33-note-themes');
   document.querySelector('.overlay-bg')?.remove();
-  void app.settingsDialog();
-  await until(() => document.querySelector('.set-card'), 3000, 'the preferences');
+  void app.settingsDialog('setups');
+  await until(() => document.querySelector('.set-card'), 3000, 'the quick setups');
   await wait(200);
   await window.__shot('34-preferences');
   document.querySelector('.overlay-bg')?.remove();
@@ -663,8 +669,12 @@ await test('Screens: study tools, for checking by eye', async () => {
   const shot = await A.regionCanvas(app.session, p2, img.rect);
   const words = await A.readWords(shot.canvas, 'eng');
   A.showWordLayer(app.viewer.views.get(p2.id), words, shot);
-  const spot = [...document.querySelectorAll('.word-spot')].find(b => b.title === 'convert') ?? document.querySelector('.word-spot');
-  spot.click();
+  const spot = [...document.querySelectorAll('.read-layer span')].find(b => b.textContent.trim() === 'convert') ?? document.querySelector('.read-layer span');
+  const range = document.createRange();
+  range.selectNodeContents(spot);
+  getSelection().removeAllRanges();
+  getSelection().addRange(range);
+  spot.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   await until(() => document.querySelector('.dict-pop .dict-word'), 6000, 'the pop-up');
   await wait(300);
   await window.__shot('37-read-picture');

@@ -154,10 +154,9 @@ export class ImageBar {
     const img = a!.image!;
     const covered = an.photos.reduce((n, p) => n + p.w * p.h, 0) / (img.width * img.height || 1);
     if (covered > 0.6 && img.keepPhotos) return 'This looks like a photo, so it stays as it is. Untick Keep photos to convert it.';
-    const parts = [`Pasted image is ${an.isDark ? 'dark' : 'light'}`];
-    if (pics) parts.push(`${pics} photo${pics > 1 ? 's' : ''} kept`);
-    if (ms !== undefined) parts.push(`${Math.round(ms)} ms`);
-    return parts.join(' · ');
+    const photos = pics ? `, and ${pics} photo${pics > 1 ? 's' : ''} inside ${pics > 1 ? 'are' : 'is'} left as ${pics > 1 ? 'they are' : 'it is'}` : '';
+    const time = ms !== undefined ? ` Converted in ${Math.round(ms)} ms.` : '';
+    return `This image is ${an.isDark ? 'dark' : 'light'}${photos}.${time}`;
   }
 
   /** Shows the bar for the selected image and updates its state. */

@@ -13,7 +13,7 @@ Adobe Acrobat is listed as the reference for what a full editor can do.
 | ⬜ | Not built yet |
 | ☁️ | Needs an outside service, so not built |
 
-Last updated 2026-11-06. See "How this was checked" at the end.
+Last updated 2026-11-06 (second update that day). See "How this was checked" at the end.
 
 ---
 
@@ -60,7 +60,7 @@ Laid out like the Xodo app installed on this PC (Xodo 6.3.4, the Microsoft Store
 
 | Feature | What the user sees | Status |
 |---|---|---|
-| Xodo's layout | One toolbar row with icons and labels. **Read** has Open, Save, Print, Actions, Undo, Edit, Study, panels, View and More. **Edit** has Xodo's markup tools in Xodo's order. **Study** has the study tools. Close or Escape goes back to Read | ✅ |
+| Xodo's layout | One toolbar row with icons and labels. **Read** has Open, Save, Print, Actions, Undo, Edit, the panels (Pages, Outline, Bookmarks, Comments, Search), View and More. **Edit** has Xodo's markup tools in Xodo's order, with the study tools beside the text tools. Close or Escape goes back to Read | ✅ |
 | One Actions menu | Every document tool (pages, convert, protect and sign, forms, tools) in one menu with a search box. Ctrl+K opens it | ✅ |
 | Nothing cut off | Tools that do not fit the window move into More | ✅ |
 | Xodo's keyboard shortcuts | The same keys as the installed Xodo, read from its own shortcut list: H highlight, U underline, G squiggly, C sticky, I ink, M marker, E eraser, T text box, R square, O oval, L line, A arrow, S signature, K stamper, P pan, Ctrl+M multi-select, Ctrl+L lasso, Ctrl+R read aloud, Ctrl+1 to 9 for documents, F11 full screen | ✅ |
@@ -73,9 +73,25 @@ Laid out like the Xodo app installed on this PC (Xodo 6.3.4, the Microsoft Store
 | Interface themes | Slate (default dark), Midnight, Mocha, Dracula, Nord, Forest, Ember, Daylight (default light) and Paper, under View. All text passes the readability contrast check (at least 4.5 to 1; secondary labels at least 3.9 to 1) | ✅ |
 | Livelier note themes | Refreshed dark Markdown note themes, plus Tokyo Night, Catppuccin, Dracula and Nord | ✅ |
 
+## 1c. The 2026-11-06 update
+
+| Feature | What the user sees | Status |
+|---|---|---|
+| Full-screen page editor | The Pages button fills the window with large pages. Tick pages to rotate, duplicate, extract or delete. Drag to reorder. A round + inserts a PDF, a picture or new pages. Settings can switch the button back to the side list | ✅ |
+| Create document | The + beside the tabs: Browse file or Create document. Blank, lined, narrow lined, grid, dotted, graph, Cornell notes or music staff; A4, Letter, A5, A3, Legal or Tabloid; portrait or landscape; up to 500 pages. Or a PDF from pictures. The lines are sharp vector lines | ✅ |
+| Insert pages | The same papers, inserted before or after a page, or at the end | ✅ |
+| Pen shortcut from Read | I opens Edit with the pen, even right after typing a thickness | ✅ |
+| Colours keep their size | Each colour of each tool keeps its own thickness and opacity | ✅ |
+| Pen and tablet settings | Pointer while drawing (cross, dot, pen-size ring, arrow, hidden), only the pen draws, side button (erase, select, move, menu), eraser end, write straight away in Read, smoothing, Shift for straight lines, a test pad that shows what Windows reports | ✅ simulated pen events; 🔵 not yet tried with a real tablet |
+| Moving around | Ctrl+wheel and touchpad pinch zoom at the pointer, middle-button drag, one-finger move and two-finger pinch on touch screens, optional wheel-zooms setting | ✅ simulated events; 🔵 not yet tried on a real touchpad or touch screen |
+| Settings window | Six clear sections. Interface themes as live pictures, applied with one click. Make your own theme from five colours, with a readability warning | ✅ |
+| Feature guide | Twelve illustrated steps on what PDFy does differently. Opens on the first start and once after each update. Also in Settings and More | ✅ |
+| Collections | Put PDFs into named, coloured collections on Home. Only a link is kept, never a copy | ✅ |
+| Wording | Status texts are full sentences | ✅ |
+
 ## 1b. Study tools (added 2026-11-05)
 
-All of these are under **Study** in the toolbar.
+All of these are on the **Edit** toolbar, beside the text tools (they had their own Study toolbar until 2026-11-06).
 
 | Feature | What the user sees | Status |
 |---|---|---|
@@ -86,12 +102,12 @@ All of these are under **Study** in the toolbar.
 | Arabic in saved notes | Shows correctly, right to left, as real text. Copying it out of the saved PDF gives the joined letter shapes in display order, because that is how the print engine writes Arabic | 🟡 |
 | Any installed font | The font picker lists every font on this PC, 365 on this one, each shown in its own letters. Star to keep at the top. Add your own font files; they are kept and embedded in saved files | ✅ |
 | Any colour | Colour field, hue bar, hex and RGB codes, eyedropper for anywhere on screen, ready-made palettes, recent and starred colours | ✅ |
-| Preference sets | One click sets fonts, colours, note look, reading mode and word lookup: Study notes, Exam revision, Clean report, Night reading, Arabic notes. Save your own | ✅ |
+| Quick setups | One click sets fonts, colours, note look, page colours and word lookup: Study notes, Exam revision, Clean report, Night reading, Arabic notes. Save your own. They never change the interface theme | ✅ |
 | Word lookup | Turn it on, then double-click or select a word. A pop-up shows UK and US pronunciation with play buttons, Arabic meanings right to left, and English meanings with examples. Also on the selection bar, the right-click menu and Ctrl+L | ✅ |
 | Cambridge, Oxford and Longman inside the pop-up | When online, the pop-up reads each publisher's own page for the word and lays it out in tabs: headword, part of speech, level, UK and US pronunciation, numbered meanings with signposts, and examples. Cambridge English–Arabic adds an Arabic translation for each meaning. Oxford's other entries (such as the verb) are one click. In the real app each page took 0.45 to 0.75 s | ✅ |
 | Open the publisher's page | One click opens the full page in a small PDFy window, plus Reverso example sentences and whole-sentence translation | ✅ |
 | Pin to the side | The pop-up can stay open at the side of the window while you read | ✅ |
-| Read text from a picture | Drag over a pasted screenshot, a scan or any part of a page. Each word found becomes a clickable spot right where it sits. Dark screenshots work: 84 words read from the test screenshot | ✅ |
+| Read text from a picture | Drag over a pasted screenshot, a scan or any part of a page. The words become invisible text right where they sit: select and copy them, double-click one to look it up, find them with Ctrl+F. Nothing is drawn on the page. Dark screenshots work: 84 words read from the test screenshot | ✅ |
 | Hearing words | Online: the publisher's own recordings, including Longman's spoken example sentences; tested playing in the real app. Then Wiktionary's recordings. Offline: a Windows voice. This PC has US English and Arabic voices but no UK voice, so offline UK uses the US voice | ✅ |
 | If a publisher changes its page layout | That tab shows "could not read this page" and offers to open it. The reader for that site then needs updating | 🟡 |
 
@@ -130,7 +146,7 @@ Source: xodo.com tool list and the Xodo app store listings.
 | Rotate pages | ✅ |
 | Thumbnails panel, click to jump, drag to reorder | ✅ |
 | Outline (table of contents) | ✅ |
-| User bookmarks, saved into the file's contents list | ✅ |
+| User bookmarks, saved into the file's contents list. Ctrl+B toggles, a ribbon marks bookmarked pages, a Bookmarks button on the toolbar | ✅ |
 | Text search with highlighted results | ✅ |
 | Text selection and copy | ✅ |
 | Clickable links and internal jumps | ✅ |
@@ -140,7 +156,7 @@ Source: xodo.com tool list and the Xodo app store listings.
 | Full screen | ✅ |
 | Right-click menus on pages, objects and thumbnails | ✅ |
 | Shortcuts list (F1), Home, End, Space to pan, Ctrl+A for page text | ✅ |
-| Recent files | ✅ |
+| Recent files, recently closed (kept 7 days, reopen at the same page, Ctrl+Shift+T) and collections, on the Home screen | ✅ |
 | Print | Prepares every page with your edits. Sending to a real printer is not tested | 🟡 |
 | Password-protected PDFs open | ✅ |
 | Layers show and hide | ✅ |
@@ -174,7 +190,7 @@ Source: xodo.com tool list and the Xodo app store listings.
 | Add web link | ✅ |
 | File attachments, for the whole document | ✅ |
 | File attachment pinned to a spot on a page | ✅ |
-| Sound annotations | Voice notes record and pin to the page. They are stored as attached files, not the old PDF sound format, so other PDF apps open them as files | 🟡 |
+| Sound annotations | Voice notes record with a level meter, can be heard before keeping, and pin to the page. One click opens a player (play, seek, speed, save a copy, delete), also after saving and reopening. Stored as attached files, not the old PDF sound format, so other PDF apps open them as files | 🟡 |
 | Real-time collaboration | ☁️ |
 
 ### Edit and pages
@@ -194,7 +210,8 @@ Source: xodo.com tool list and the Xodo app store listings.
 | Feature | Status |
 |---|---|
 | Fill in forms: text, checkbox, radio, dropdown, list | ✅ |
-| Create form fields | ✅ |
+| Create form fields. Fillable straight away in Read, and what is filled in is saved as the field's value and drawn into the page. Radio choices with one name are one question. "How forms work" explains filling and making | ✅ |
+| Form answers in Chinese, Japanese or Korean | Stored in the field, but not drawn into the page, because the font used has no such letters. Apps that draw fields themselves show them | 🟡 |
 | Auto-detect fields from blank lines and boxes | ✅ |
 | Flatten forms | ✅ |
 | Sign: draw, type or image, saved for reuse | ✅ |
@@ -300,6 +317,7 @@ Adobe's own matrix could not be fully read, so treat this list as close, not exh
 - **Memory and smoothness:** `node tests/bigfile-test.mjs` and `node tests/scroll-test.mjs`.
 - **Real websites:** the theme scores above (`node tests/real-web-test.mjs`).
 - **Real mouse and keyboard:** 25 tests that move the mouse, drag and type as a person would, including on rotated pages (`node tests/browser-run.mjs --ui`).
+- **The 2026-11-06 update:** 22 tests in a hidden Edge window (`node tests/browser-run.mjs --update`), plus screenshots of every new screen (`--update-visual`). Pen, touch and touchpad input are simulated events, not a real tablet.
 - **Study tools:** 26 tests in a hidden Edge window (`node tests/browser-run.mjs --study`), including reading the three publishers' live pages, and 18 in the real exe, including vector saving, the Windows font list, the publishers' pages and recordings, and the reference window (`node tests/study-host-test.mjs`). The live-page tests need the internet.
 
 ---
