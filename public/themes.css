@@ -1,271 +1,404 @@
-/* Load after styles.css. Only semantic colours: layout belongs to styles.css. */
+/* UI_Enhance: complete palettes shared by the app and its live theme previews. */
 
-/* Slate: blue-grey chrome, a lifted canvas and a clear sky-blue accent. */
+/* Graphite */
+:is(:root, .theme-scope)[data-ui-theme="graphite"] {
+  color-scheme: dark;
+  --bg: #191b1d;
+  --surface: #25292b;
+  --surface-2: #303638;
+  --surface-3: #383f3d;
+  --border: #424a46;
+  --text: #ebeeeb;
+  --muted: #b4bdb7;
+  --accent: #9ac5ae;
+  --accent-ink: #15251d;
+  --accent-soft: #344742;
+  --accent-text: #b6dfc7;
+  --chrome: #202325;
+  --chrome-2: #191d1e;
+  --chrome-text: #ebeeeb;
+  --chrome-muted: #b4bdb7;
+  --chrome-hover: #303638;
+  --chrome-active: #344742;
+  --chrome-border: #424a46;
+  --tab-active: #2b3431;
+  --canvas-bg: #141718;
+  --focus: #b6dfc7;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .2), 0 12px 32px rgb(12 18 28 / .24);
+  --shadow: 0 6px 16px rgb(12 18 28 / .2), 0 24px 64px rgb(12 18 28 / .28);
+  --ok: #a4dbba;
+  --warn: #f1ce93;
+  --danger: #ffb1b5;
+}
+
+/* Carbon */
+:is(:root, .theme-scope)[data-ui-theme="carbon"] {
+  color-scheme: dark;
+  --bg: #191b1d;
+  --surface: #25292b;
+  --surface-2: #303638;
+  --surface-3: #383f3d;
+  --border: #424a46;
+  --text: #ebeeeb;
+  --muted: #b4bdb7;
+  --accent: #d2b487;
+  --accent-ink: #2b2116;
+  --accent-soft: #443b2e;
+  --accent-text: #e8cca3;
+  --chrome: #202325;
+  --chrome-2: #191d1e;
+  --chrome-text: #ebeeeb;
+  --chrome-muted: #b4bdb7;
+  --chrome-hover: #303638;
+  --chrome-active: #443b2e;
+  --chrome-border: #424a46;
+  --tab-active: #34302a;
+  --canvas-bg: #141718;
+  --focus: #e8cca3;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .2), 0 12px 32px rgb(12 18 28 / .24);
+  --shadow: 0 6px 16px rgb(12 18 28 / .2), 0 24px 64px rgb(12 18 28 / .28);
+  --ok: #a4dbba;
+  --warn: #f1ce93;
+  --danger: #ffb1b5;
+}
+
+/* Slate */
 :is(:root, .theme-scope)[data-ui-theme="slate"] {
   color-scheme: dark;
-  --bg: #1d242e;
-  --surface: #252d38;
-  --surface-2: #303e50;
-  --surface-3: #3a4b60;
-  --border: #48596d;
-  --text: #edf2f8;
-  --muted: #bdcbdc;
-  --accent: #79b7ef;
-  --accent-ink: #10253b;
-  --accent-soft: #2c435b;
-  --accent-text: #a3d2ff;
-  --chrome: #2b3037;
-  --chrome-2: #20252c;
-  --chrome-text: #edf2f8;
-  --chrome-muted: #b7c4d4;
-  --chrome-hover: #35465a;
-  --chrome-active: #37516d;
-  --chrome-border: #495361;
-  --tab-active: #36404e;
-  --canvas-bg: #414955;
-  --page-shadow: 0 2px 5px rgb(10 18 30 / 0.28), 0 12px 30px rgb(10 18 30 / 0.32);
-  --shadow: 0 3px 8px rgb(10 18 30 / 0.24), 0 16px 40px rgb(10 18 30 / 0.38);
-  --ok: #8ed3a8;
-  --warn: #f1c878;
-  --danger: #ff9d9b;
+  --bg: #101318;
+  --surface: #1c2027;
+  --surface-2: #242a33;
+  --surface-3: #2e3642;
+  --border: #394351;
+  --text: #eff3f8;
+  --muted: #b0bdcd;
+  --accent: #90b7ff;
+  --accent-ink: #102449;
+  --accent-soft: #293b57;
+  --accent-text: #bdd3ff;
+  --chrome: #181c23;
+  --chrome-2: #13171d;
+  --chrome-text: #eff3f8;
+  --chrome-muted: #b0bdcd;
+  --chrome-hover: #282f3b;
+  --chrome-active: #2a3b54;
+  --chrome-border: #313947;
+  --tab-active: #252d39;
+  --canvas-bg: #292f38;
+  --focus: #90b7ff;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .2), 0 12px 32px rgb(12 18 28 / .24);
+  --shadow: 0 6px 16px rgb(12 18 28 / .2), 0 24px 64px rgb(12 18 28 / .28);
+  --ok: #a4dbba;
+  --warn: #f1ce93;
+  --danger: #ffb1b5;
 }
 
-/* Midnight: ink-blue layers, electric periwinkle and cool starlight. */
+/* Midnight */
 :is(:root, .theme-scope)[data-ui-theme="midnight"] {
   color-scheme: dark;
-  --bg: #141928;
-  --surface: #1d2338;
-  --surface-2: #2a3250;
-  --surface-3: #343f61;
-  --border: #47557b;
-  --text: #e3eaff;
-  --muted: #bdc8e8;
-  --accent: #a89aff;
-  --accent-ink: #201940;
-  --accent-soft: #37325a;
-  --accent-text: #c3b7ff;
-  --chrome: #1a2035;
-  --chrome-2: #111629;
-  --chrome-text: #e6ecff;
-  --chrome-muted: #abb9dd;
-  --chrome-hover: #30365a;
-  --chrome-active: #423c6c;
-  --chrome-border: #3d476a;
-  --tab-active: #2a3151;
-  --canvas-bg: #292f48;
-  --page-shadow: 0 2px 6px rgb(7 10 30 / 0.36), 0 14px 34px rgb(7 10 30 / 0.42);
-  --shadow: 0 3px 9px rgb(7 10 30 / 0.32), 0 18px 44px rgb(7 10 30 / 0.48);
-  --ok: #8adbc2;
-  --warn: #f2d58d;
-  --danger: #ffa6bf;
+  --bg: #111326;
+  --surface: #1b1e34;
+  --surface-2: #252a44;
+  --surface-3: #303654;
+  --border: #414968;
+  --text: #edf0ff;
+  --muted: #b5bfdc;
+  --accent: #b7a6ff;
+  --accent-ink: #241b46;
+  --accent-soft: #343052;
+  --accent-text: #d3c7ff;
+  --chrome: #171a2c;
+  --chrome-2: #121423;
+  --chrome-text: #edf0ff;
+  --chrome-muted: #b5bfdc;
+  --chrome-hover: #292d48;
+  --chrome-active: #39345c;
+  --chrome-border: #343b56;
+  --tab-active: #292d47;
+  --canvas-bg: #25293f;
+  --focus: #b7a6ff;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .2), 0 12px 32px rgb(12 18 28 / .24);
+  --shadow: 0 6px 16px rgb(12 18 28 / .2), 0 24px 64px rgb(12 18 28 / .28);
+  --ok: #a4dbba;
+  --warn: #f1ce93;
+  --danger: #ffb1b5;
 }
 
-/* Mocha: warm plum, soft mauve and rose, with no neutral-grey layers. */
+/* Mocha */
 :is(:root, .theme-scope)[data-ui-theme="mocha"] {
   color-scheme: dark;
-  --bg: #1e1a25;
-  --surface: #2b2533;
-  --surface-2: #3a3044;
-  --surface-3: #483a51;
-  --border: #62506b;
-  --text: #f2e7f5;
-  --muted: #cebed5;
-  --accent: #e4a9dd;
-  --accent-ink: #321d36;
-  --accent-soft: #48314d;
-  --accent-text: #efb8df;
-  --chrome: #302838;
-  --chrome-2: #201c29;
-  --chrome-text: #f4e8f5;
-  --chrome-muted: #cab6d2;
-  --chrome-hover: #45344c;
-  --chrome-active: #583a5b;
-  --chrome-border: #5f4967;
-  --tab-active: #433349;
-  --canvas-bg: #443a4d;
-  --page-shadow: 0 2px 6px rgb(24 12 31 / 0.3), 0 12px 30px rgb(24 12 31 / 0.36);
-  --shadow: 0 3px 8px rgb(24 12 31 / 0.28), 0 16px 40px rgb(24 12 31 / 0.42);
-  --ok: #acd7b3;
-  --warn: #f0d296;
-  --danger: #f6a7b5;
+  --bg: #201b1d;
+  --surface: #2b2528;
+  --surface-2: #362e33;
+  --surface-3: #43383e;
+  --border: #594a53;
+  --text: #faf0f3;
+  --muted: #d0bac3;
+  --accent: #eeb4c6;
+  --accent-ink: #421b2d;
+  --accent-soft: #503541;
+  --accent-text: #ffd1e0;
+  --chrome: #251f23;
+  --chrome-2: #1b171a;
+  --chrome-text: #faf0f3;
+  --chrome-muted: #d0bac3;
+  --chrome-hover: #3c3037;
+  --chrome-active: #503541;
+  --chrome-border: #4c3d45;
+  --tab-active: #3b3036;
+  --canvas-bg: #3d3439;
+  --focus: #eeb4c6;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .2), 0 12px 32px rgb(12 18 28 / .24);
+  --shadow: 0 6px 16px rgb(12 18 28 / .2), 0 24px 64px rgb(12 18 28 / .28);
+  --ok: #a4dbba;
+  --warn: #f1ce93;
+  --danger: #ffb1b5;
 }
 
-/* Dracula: violet-black foundations, pink actions and cyan active labels. */
+/* Dracula */
 :is(:root, .theme-scope)[data-ui-theme="dracula"] {
   color-scheme: dark;
-  --bg: #18151f;
-  --surface: #272331;
-  --surface-2: #352d44;
-  --surface-3: #433456;
-  --border: #604a78;
-  --text: #f3eafa;
-  --muted: #c8b6d6;
-  --accent: #f18fca;
-  --accent-ink: #331728;
-  --accent-soft: #4e2c48;
-  --accent-text: #8ce5e8;
-  --chrome: #241f30;
-  --chrome-2: #191621;
-  --chrome-text: #f4ebff;
-  --chrome-muted: #c5addb;
-  --chrome-hover: #3b2e4e;
-  --chrome-active: #4b3154;
-  --chrome-border: #5b4373;
-  --tab-active: #392b49;
-  --canvas-bg: #393245;
-  --page-shadow: 0 2px 6px rgb(16 7 26 / 0.34), 0 14px 32px rgb(16 7 26 / 0.4);
-  --shadow: 0 3px 9px rgb(16 7 26 / 0.3), 0 18px 42px rgb(16 7 26 / 0.46);
-  --ok: #9cebb1;
-  --warn: #f1e394;
-  --danger: #ff9eb3;
+  --bg: #18171f;
+  --surface: #24212e;
+  --surface-2: #302b3d;
+  --surface-3: #3c344b;
+  --border: #50455f;
+  --text: #f3effa;
+  --muted: #c7bdd7;
+  --accent: #c1a3ff;
+  --accent-ink: #2b194c;
+  --accent-soft: #443358;
+  --accent-text: #dfccff;
+  --chrome: #1e1c27;
+  --chrome-2: #16151d;
+  --chrome-text: #f3effa;
+  --chrome-muted: #c7bdd7;
+  --chrome-hover: #342e44;
+  --chrome-active: #443358;
+  --chrome-border: #423a50;
+  --tab-active: #312b3f;
+  --canvas-bg: #302a3a;
+  --focus: #c1a3ff;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .2), 0 12px 32px rgb(12 18 28 / .24);
+  --shadow: 0 6px 16px rgb(12 18 28 / .2), 0 24px 64px rgb(12 18 28 / .28);
+  --ok: #a4dbba;
+  --warn: #f1ce93;
+  --danger: #ffb1b5;
 }
 
-/* Nord: polar blue surfaces and a frost-blue accent. */
+/* Nord */
 :is(:root, .theme-scope)[data-ui-theme="nord"] {
   color-scheme: dark;
-  --bg: #222e3c;
-  --surface: #2e3c4d;
-  --surface-2: #3a4b60;
-  --surface-3: #455973;
-  --border: #60758d;
-  --text: #ecf3fb;
-  --muted: #cad7e8;
-  --accent: #9ad8e1;
-  --accent-ink: #15313d;
-  --accent-soft: #3b5362;
-  --accent-text: #c5edf1;
-  --chrome: #304054;
-  --chrome-2: #233041;
-  --chrome-text: #edf4fc;
-  --chrome-muted: #c0d0e2;
-  --chrome-hover: #405970;
-  --chrome-active: #48647a;
-  --chrome-border: #5c738c;
-  --tab-active: #3e5269;
-  --canvas-bg: #435367;
-  --page-shadow: 0 2px 5px rgb(12 25 41 / 0.28), 0 12px 30px rgb(12 25 41 / 0.34);
-  --shadow: 0 3px 8px rgb(12 25 41 / 0.26), 0 16px 40px rgb(12 25 41 / 0.4);
-  --ok: #b9dbb8;
-  --warn: #f3d69c;
-  --danger: #ffb0ba;
+  --bg: #171f28;
+  --surface: #222e3a;
+  --surface-2: #2c3b49;
+  --surface-3: #364958;
+  --border: #496072;
+  --text: #edf6fa;
+  --muted: #bdcfd9;
+  --accent: #a4d6df;
+  --accent-ink: #10353d;
+  --accent-soft: #2c4953;
+  --accent-text: #bcecf2;
+  --chrome: #1d2833;
+  --chrome-2: #17212a;
+  --chrome-text: #edf6fa;
+  --chrome-muted: #bdcfd9;
+  --chrome-hover: #304451;
+  --chrome-active: #35515e;
+  --chrome-border: #3b5263;
+  --tab-active: #2d404e;
+  --canvas-bg: #32424e;
+  --focus: #a4d6df;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .2), 0 12px 32px rgb(12 18 28 / .24);
+  --shadow: 0 6px 16px rgb(12 18 28 / .2), 0 24px 64px rgb(12 18 28 / .28);
+  --ok: #a4dbba;
+  --warn: #f1ce93;
+  --danger: #ffb1b5;
 }
 
-/* Forest: bottle-green depth and a fluorescent yellow marker. */
+/* Forest */
 :is(:root, .theme-scope)[data-ui-theme="forest"] {
   color-scheme: dark;
-  --bg: #10251f;
-  --surface: #19372c;
-  --surface-2: #254a3a;
-  --surface-3: #305a43;
-  --border: #52765b;
-  --text: #eef6e6;
-  --muted: #c9dcc3;
-  --accent: #e0f36a;
-  --accent-ink: #1e321a;
-  --accent-soft: #344c27;
-  --accent-text: #e6f986;
-  --chrome: #173d2e;
-  --chrome-2: #102d24;
-  --chrome-text: #f0f6e8;
-  --chrome-muted: #c1d5b9;
-  --chrome-hover: #2a5338;
-  --chrome-active: #3b562b;
-  --chrome-border: #4b7253;
-  --tab-active: #284e35;
-  --canvas-bg: #285343;
-  --page-shadow: 0 2px 5px rgb(5 24 16 / 0.3), 0 12px 30px rgb(5 24 16 / 0.36);
-  --shadow: 0 3px 8px rgb(5 24 16 / 0.28), 0 16px 40px rgb(5 24 16 / 0.42);
-  --ok: #a4e2b2;
-  --warn: #f4d58c;
-  --danger: #ffb1a0;
+  --bg: #14201c;
+  --surface: #1c2d26;
+  --surface-2: #263b31;
+  --surface-3: #304a3d;
+  --border: #436253;
+  --text: #eef8f2;
+  --muted: #bfd2c6;
+  --accent: #a3dab7;
+  --accent-ink: #143b25;
+  --accent-soft: #2b4c3a;
+  --accent-text: #c0efcf;
+  --chrome: #192820;
+  --chrome-2: #122019;
+  --chrome-text: #eef8f2;
+  --chrome-muted: #bfd2c6;
+  --chrome-hover: #2b4034;
+  --chrome-active: #34533f;
+  --chrome-border: #385044;
+  --tab-active: #293e32;
+  --canvas-bg: #2c4035;
+  --focus: #a3dab7;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .2), 0 12px 32px rgb(12 18 28 / .24);
+  --shadow: 0 6px 16px rgb(12 18 28 / .2), 0 24px 64px rgb(12 18 28 / .28);
+  --ok: #a4dbba;
+  --warn: #f1ce93;
+  --danger: #ffb1b5;
 }
 
-/* Ember: warm graphite and copper-orange, like a lamp over the desk. */
+/* Ember */
 :is(:root, .theme-scope)[data-ui-theme="ember"] {
   color-scheme: dark;
-  --bg: #241e1b;
-  --surface: #302923;
-  --surface-2: #43362d;
-  --surface-3: #514034;
-  --border: #705646;
-  --text: #f6ede5;
-  --muted: #d0bbab;
-  --accent: #ffb273;
-  --accent-ink: #3d2113;
-  --accent-soft: #563727;
-  --accent-text: #ffc391;
-  --chrome: #332b26;
-  --chrome-2: #251f1b;
-  --chrome-text: #f8eee5;
-  --chrome-muted: #d5bdab;
-  --chrome-hover: #4d382b;
-  --chrome-active: #633e28;
-  --chrome-border: #70513e;
-  --tab-active: #49372c;
-  --canvas-bg: #4c4138;
-  --page-shadow: 0 2px 5px rgb(30 15 8 / 0.3), 0 12px 30px rgb(30 15 8 / 0.36);
-  --shadow: 0 3px 8px rgb(30 15 8 / 0.28), 0 16px 40px rgb(30 15 8 / 0.42);
-  --ok: #b4daa6;
-  --warn: #f6d089;
-  --danger: #ff9b96;
+  --bg: #231e1a;
+  --surface: #302821;
+  --surface-2: #3c3229;
+  --surface-3: #4b3d31;
+  --border: #62503f;
+  --text: #fff3e5;
+  --muted: #d6c2ab;
+  --accent: #f2c08b;
+  --accent-ink: #452a10;
+  --accent-soft: #573d29;
+  --accent-text: #ffd5a8;
+  --chrome: #2a231d;
+  --chrome-2: #211b17;
+  --chrome-text: #fff3e5;
+  --chrome-muted: #d6c2ab;
+  --chrome-hover: #403327;
+  --chrome-active: #57412a;
+  --chrome-border: #534233;
+  --tab-active: #403328;
+  --canvas-bg: #443a30;
+  --focus: #f2c08b;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .2), 0 12px 32px rgb(12 18 28 / .24);
+  --shadow: 0 6px 16px rgb(12 18 28 / .2), 0 24px 64px rgb(12 18 28 / .28);
+  --ok: #a4dbba;
+  --warn: #f1ce93;
+  --danger: #ffb1b5;
 }
 
-/* Daylight: crisp blue-white panels under a comfortable mid-grey header. */
+/* Daylight */
 :is(:root, .theme-scope)[data-ui-theme="daylight"] {
   color-scheme: light;
-  --bg: #e9eef5;
-  --surface: #fcfdff;
-  --surface-2: #e1eaf6;
-  --surface-3: #cfdff3;
-  --border: #b4c3d7;
-  --text: #202c3e;
-  --muted: #4d5c70;
-  --accent: #285fb9;
+  --bg: #f4f7fb;
+  --surface: #ffffff;
+  --surface-2: #f2f5fa;
+  --surface-3: #e7edf5;
+  --border: #d7e0ed;
+  --text: #263247;
+  --muted: #58687e;
+  --accent: #3263c9;
   --accent-ink: #ffffff;
-  --accent-soft: #dce9fd;
-  --accent-text: #214f9c;
-  --chrome: #535d6c;
-  --chrome-2: #454e5d;
-  --chrome-text: #f5f8fc;
-  --chrome-muted: #dde5ef;
-  --chrome-hover: #626f84;
-  --chrome-active: #3c5278;
-  --chrome-border: #758399;
-  --tab-active: #60718b;
-  --canvas-bg: #a7b1c0;
-  --page-shadow: 0 2px 4px rgb(31 47 72 / 0.18), 0 10px 26px rgb(31 47 72 / 0.22);
-  --shadow: 0 3px 8px rgb(31 47 72 / 0.12), 0 16px 36px rgb(31 47 72 / 0.2);
+  --accent-soft: #e8efff;
+  --accent-text: #244f9f;
+  --chrome: #ffffff;
+  --chrome-2: #f2f5fa;
+  --chrome-text: #263247;
+  --chrome-muted: #58687e;
+  --chrome-hover: #edf2f9;
+  --chrome-active: #dce8ff;
+  --chrome-border: #dce3ed;
+  --tab-active: #ffffff;
+  --canvas-bg: #e2e8f0;
+  --focus: #3263c9;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .06), 0 12px 32px rgb(12 18 28 / .1);
+  --shadow: 0 6px 16px rgb(12 18 28 / .06), 0 24px 64px rgb(12 18 28 / .12);
   --ok: #276644;
   --warn: #805510;
   --danger: #a93339;
 }
 
-/* Paper: warm ivory panels, sepia chrome and walnut accents. */
+/* Paper */
 :is(:root, .theme-scope)[data-ui-theme="paper"] {
   color-scheme: light;
-  --bg: #eee7d9;
-  --surface: #fcf6e9;
-  --surface-2: #ede1ca;
-  --surface-3: #e1cfb1;
-  --border: #cbb99e;
-  --text: #382e26;
-  --muted: #67523e;
-  --accent: #80502f;
-  --accent-ink: #fffaf2;
-  --accent-soft: #ecdbc3;
-  --accent-text: #754222;
-  --chrome: #675743;
-  --chrome-2: #514432;
-  --chrome-text: #fff6e4;
-  --chrome-muted: #f0dfc6;
-  --chrome-hover: #7b664c;
-  --chrome-active: #805f3b;
-  --chrome-border: #a18b69;
-  --tab-active: #746046;
-  --canvas-bg: #b9a88c;
-  --page-shadow: 0 2px 4px rgb(60 41 19 / 0.16), 0 10px 26px rgb(60 41 19 / 0.2);
-  --shadow: 0 3px 8px rgb(60 41 19 / 0.12), 0 16px 36px rgb(60 41 19 / 0.2);
-  --ok: #38633d;
-  --warn: #80530d;
-  --danger: #a13732;
+  --bg: #f7f3ec;
+  --surface: #fffdf8;
+  --surface-2: #f4efe5;
+  --surface-3: #eae2d4;
+  --border: #ded3c1;
+  --text: #3e3b32;
+  --muted: #6b6354;
+  --accent: #806236;
+  --accent-ink: #ffffff;
+  --accent-soft: #efe4d0;
+  --accent-text: #735126;
+  --chrome: #fffdf8;
+  --chrome-2: #f2eee5;
+  --chrome-text: #3e3b32;
+  --chrome-muted: #655c4f;
+  --chrome-hover: #f0eadf;
+  --chrome-active: #eadfca;
+  --chrome-border: #e0d7c8;
+  --tab-active: #fffdf8;
+  --canvas-bg: #e7e1d6;
+  --focus: #806236;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .06), 0 12px 32px rgb(12 18 28 / .1);
+  --shadow: 0 6px 16px rgb(12 18 28 / .06), 0 24px 64px rgb(12 18 28 / .12);
+  --ok: #276644;
+  --warn: #805510;
+  --danger: #a93339;
+}
+
+/* Lilac */
+:is(:root, .theme-scope)[data-ui-theme="lilac"] {
+  color-scheme: light;
+  --bg: #f6f4fc;
+  --surface: #fefcff;
+  --surface-2: #f2edf9;
+  --surface-3: #e8dff4;
+  --border: #ded3ed;
+  --text: #352b49;
+  --muted: #6e5b83;
+  --accent: #7952b3;
+  --accent-ink: #ffffff;
+  --accent-soft: #eee4fc;
+  --accent-text: #674097;
+  --chrome: #fefcff;
+  --chrome-2: #f4effa;
+  --chrome-text: #352b49;
+  --chrome-muted: #6e5b83;
+  --chrome-hover: #f0e9f8;
+  --chrome-active: #e7dcf5;
+  --chrome-border: #e1d7ed;
+  --tab-active: #fefcff;
+  --canvas-bg: #e8e1f2;
+  --focus: #7952b3;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .06), 0 12px 32px rgb(12 18 28 / .1);
+  --shadow: 0 6px 16px rgb(12 18 28 / .06), 0 24px 64px rgb(12 18 28 / .12);
+  --ok: #276644;
+  --warn: #805510;
+  --danger: #a93339;
+}
+
+/* Sage */
+:is(:root, .theme-scope)[data-ui-theme="sage"] {
+  color-scheme: light;
+  --bg: #f1f2ef;
+  --surface: #ffffff;
+  --surface-2: #e8ece7;
+  --surface-3: #dfe5de;
+  --border: #bec8c0;
+  --text: #202824;
+  --muted: #505f56;
+  --accent: #315f48;
+  --accent-ink: #ffffff;
+  --accent-soft: #dde9e1;
+  --accent-text: #286343;
+  --chrome: #f8f9f6;
+  --chrome-2: #f1f2ef;
+  --chrome-text: #202824;
+  --chrome-muted: #505f56;
+  --chrome-hover: #e8ece7;
+  --chrome-active: #dde9e1;
+  --chrome-border: #bec8c0;
+  --tab-active: #ffffff;
+  --canvas-bg: #d9ddd8;
+  --focus: #286343;
+  --page-shadow: 0 2px 6px rgb(12 18 28 / .06), 0 12px 32px rgb(12 18 28 / .1);
+  --shadow: 0 6px 16px rgb(12 18 28 / .06), 0 24px 64px rgb(12 18 28 / .12);
+  --ok: #276644;
+  --warn: #805510;
+  --danger: #a93339;
 }

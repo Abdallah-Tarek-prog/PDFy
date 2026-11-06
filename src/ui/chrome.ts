@@ -178,11 +178,16 @@ export function showDropdown(anchor: HTMLElement, spec: MenuSpec, hooks: ChromeH
   }
   panel.append(body);
   draw();
+  // Keep larger menus next to their button and scroll their contents on short windows.
+  const below = Math.max(0, innerHeight - r.bottom - 10);
+  const above = Math.max(0, r.top - 10);
+  const openAbove = below < 240 && above > below;
+  panel.style.maxHeight = `${Math.max(80, openAbove ? above : below)}px`;
   document.body.append(panel);
 
   const p = panel.getBoundingClientRect();
   panel.style.left = `${Math.max(6, Math.min(r.left, innerWidth - p.width - 6))}px`;
-  panel.style.top = `${Math.min(r.bottom + 4, innerHeight - p.height - 6)}px`;
+  panel.style.top = `${Math.max(6, openAbove ? r.top - p.height - 4 : r.bottom + 4)}px`;
 
   const away = (e: Event) => { if (!panel.contains(e.target as Node) && !anchor.contains(e.target as Node)) close(); };
   const key = (e: KeyboardEvent) => {

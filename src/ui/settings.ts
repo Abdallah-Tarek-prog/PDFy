@@ -118,7 +118,7 @@ function appearance(app: App, redraw: () => void): HTMLElement {
 
 /** Make or edit a theme from five colours, with a live picture of the window. */
 async function themeEditor(app: App, editing?: UiTheme) {
-  const startFrom = editing?.custom ?? { chrome: '#2b3037', surface: '#252d38', canvas: '#414955', text: '#edf2f8', accent: '#79b7ef' };
+  const startFrom = editing?.custom ?? { chrome: '#202325', surface: '#25292b', canvas: '#141718', text: '#ebeeeb', accent: '#9ac5ae' };
   const base: CustomBase = { ...startFrom };
   const name = h('input', { type: 'text', class: 'st-input', value: editing?.name ?? 'My theme', 'aria-label': 'Theme name' });
   const preview = h('div', { class: 'st-editor-preview' });

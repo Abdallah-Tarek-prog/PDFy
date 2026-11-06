@@ -6,7 +6,7 @@ import { UI_THEMES } from '../src/ui/themes.ts';
 const css = readFileSync(new URL('../public/themes.css', import.meta.url), 'utf8');
 const required = [
   'bg', 'surface', 'surface-2', 'surface-3', 'border', 'text', 'muted',
-  'accent', 'accent-ink', 'accent-soft', 'accent-text',
+  'accent', 'accent-ink', 'accent-soft', 'accent-text', 'focus',
   'chrome', 'chrome-2', 'chrome-text', 'chrome-muted', 'chrome-hover', 'chrome-active', 'chrome-border', 'tab-active',
   'canvas-bg', 'page-shadow', 'shadow', 'ok', 'warn', 'danger',
 ];
@@ -59,13 +59,16 @@ for (const theme of UI_THEMES) {
   }
   for (const bg of ['chrome', 'chrome-2', 'chrome-hover', 'chrome-active', 'tab-active']) {
     check(`${theme.id} chrome-text / ${bg}`, p['chrome-text'], p[bg]);
-    check(`${theme.id} chrome-muted / ${bg}`, p['chrome-muted'], p[bg], 3);
+    check(`${theme.id} chrome-muted / ${bg}`, p['chrome-muted'], p[bg]);
   }
   check(`${theme.id} accent-ink / accent`, p['accent-ink'], p.accent);
   for (const bg of ['surface', 'surface-2', 'surface-3', 'accent-soft']) {
     check(`${theme.id} accent-text / ${bg}`, p['accent-text'], p[bg]);
   }
   for (const fg of ['ok', 'warn', 'danger']) check(`${theme.id} ${fg} / surface`, p[fg], p.surface);
+  for (const bg of ['surface', 'surface-2', 'surface-3', 'accent-soft', 'chrome', 'chrome-hover', 'chrome-active', 'tab-active']) {
+    check(`${theme.id} focus / ${bg}`, p.focus, p[bg], 3);
+  }
 }
 
 for (const theme of BUILT_IN_THEMES) {

@@ -70,7 +70,7 @@ Laid out like the Xodo app installed on this PC (Xodo 6.3.4, the Microsoft Store
 | No Windows title bar | PDFy's own header holds minimise, maximise and close. All four edges and corners resize. Maximised, it fills the screen exactly. Checked in the real app on this PC at 125% scaling | ✅ |
 | Moving and snapping the window | Drag the header to move it, double-click to maximise, Snap to screen edges. Built on Windows' own support, but not yet tried with a real mouse | 🔵 |
 | Floating controls | Page number bottom left and zoom bottom right, as in Xodo. Style options float above the page only when something is chosen, so the page never jumps | ✅ |
-| Interface themes | Slate (default dark), Midnight, Mocha, Dracula, Nord, Forest, Ember, Daylight (default light) and Paper, under View. All text passes the readability contrast check (at least 4.5 to 1; secondary labels at least 3.9 to 1) | ✅ |
+| Interface themes | 13 rebuilt palettes: Graphite (default dark), Carbon, Slate, Midnight, Mocha, Dracula, Nord, Forest, Ember, Daylight (default light), Paper, Lilac and Sage. Choose under View or Settings → Appearance. Theme text and secondary labels meet 4.5 to 1; focus outlines meet 3 to 1 | ✅ |
 | Livelier note themes | Refreshed dark Markdown note themes, plus Tokyo Night, Catppuccin, Dracula and Nord | ✅ |
 
 ## 1c. The 2026-11-06 update

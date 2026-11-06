@@ -1,19 +1,23 @@
-export const DEFAULT_DARK = 'slate';
+export const DEFAULT_DARK = 'graphite';
 export const DEFAULT_LIGHT = 'daylight';
 
 export interface UiTheme { id: string; name: string; dark: boolean; swatch: [string, string, string]; custom?: CustomBase }
 
 /** Picker swatches: chrome, canvas, accent. Keep in sync with public/themes.css. */
 export const UI_THEMES: UiTheme[] = [
-  { id: 'slate', name: 'Slate', dark: true, swatch: ['#2b3037', '#414955', '#79b7ef'] },
-  { id: 'midnight', name: 'Midnight', dark: true, swatch: ['#1a2035', '#292f48', '#a89aff'] },
-  { id: 'mocha', name: 'Mocha', dark: true, swatch: ['#302838', '#443a4d', '#e4a9dd'] },
-  { id: 'dracula', name: 'Dracula', dark: true, swatch: ['#241f30', '#393245', '#f18fca'] },
-  { id: 'nord', name: 'Nord', dark: true, swatch: ['#304054', '#435367', '#9ad8e1'] },
-  { id: 'forest', name: 'Forest', dark: true, swatch: ['#173d2e', '#285343', '#e0f36a'] },
-  { id: 'ember', name: 'Ember', dark: true, swatch: ['#332b26', '#4c4138', '#ffb273'] },
-  { id: 'daylight', name: 'Daylight', dark: false, swatch: ['#535d6c', '#a7b1c0', '#285fb9'] },
-  { id: 'paper', name: 'Paper', dark: false, swatch: ['#675743', '#b9a88c', '#80502f'] },
+  { id: 'graphite', name: 'Graphite', dark: true, swatch: ['#202325', '#141718', '#9ac5ae'] },
+  { id: 'carbon', name: 'Carbon', dark: true, swatch: ['#202325', '#141718', '#d2b487'] },
+  { id: 'slate', name: 'Slate', dark: true, swatch: ['#181c23', '#292f38', '#90b7ff'] },
+  { id: 'midnight', name: 'Midnight', dark: true, swatch: ['#171a2c', '#25293f', '#b7a6ff'] },
+  { id: 'mocha', name: 'Mocha', dark: true, swatch: ['#251f23', '#3d3439', '#eeb4c6'] },
+  { id: 'dracula', name: 'Dracula', dark: true, swatch: ['#1e1c27', '#302a3a', '#c1a3ff'] },
+  { id: 'nord', name: 'Nord', dark: true, swatch: ['#1d2833', '#32424e', '#a4d6df'] },
+  { id: 'forest', name: 'Forest', dark: true, swatch: ['#192820', '#2c4035', '#a3dab7'] },
+  { id: 'ember', name: 'Ember', dark: true, swatch: ['#2a231d', '#443a30', '#f2c08b'] },
+  { id: 'daylight', name: 'Daylight', dark: false, swatch: ['#ffffff', '#e2e8f0', '#3263c9'] },
+  { id: 'paper', name: 'Paper', dark: false, swatch: ['#fffdf8', '#e7e1d6', '#806236'] },
+  { id: 'lilac', name: 'Lilac', dark: false, swatch: ['#fefcff', '#e8e1f2', '#7952b3'] },
+  { id: 'sage', name: 'Sage', dark: false, swatch: ['#f8f9f6', '#d9ddd8', '#315f48'] },
 ];
 
 const KEY = 'pdfy.uiTheme';
@@ -49,6 +53,7 @@ const inkFor = (bg: string) => (contrast(bg, '#ffffff') >= contrast(bg, '#111111
 /** All the colours a theme needs, worked out from the five chosen ones. */
 export function deriveVars(b: CustomBase): Record<string, string> {
   const dark = luminance(b.surface) < 0.3;
+  const darkChrome = luminance(b.chrome) < 0.3;
   const chromeText = inkFor(b.chrome) === '#ffffff' ? mix(b.chrome, '#ffffff', 0.92) : mix(b.chrome, '#000000', 0.88);
   const shade = dark ? '10 14 22' : '20 24 32';
   return {
@@ -61,11 +66,12 @@ export function deriveVars(b: CustomBase): Record<string, string> {
     '--text': b.text,
     '--muted': mix(b.text, b.surface, 0.3),
     '--accent': b.accent,
+    '--focus': b.accent,
     '--accent-ink': inkFor(b.accent),
     '--accent-soft': mix(b.surface, b.accent, 0.2),
     '--accent-text': contrast(b.accent, b.surface) >= 4.5 ? b.accent : mix(b.accent, dark ? '#ffffff' : '#000000', 0.45),
     '--chrome': b.chrome,
-    '--chrome-2': mix(b.chrome, '#000000', 0.18),
+    '--chrome-2': mix(b.chrome, darkChrome ? '#000000' : '#ffffff', 0.12),
     '--chrome-text': chromeText,
     '--chrome-muted': mix(chromeText, b.chrome, 0.28),
     '--chrome-hover': mix(b.chrome, chromeText, 0.12),
@@ -73,8 +79,8 @@ export function deriveVars(b: CustomBase): Record<string, string> {
     '--chrome-border': mix(b.chrome, chromeText, 0.2),
     '--tab-active': mix(b.chrome, chromeText, 0.1),
     '--canvas-bg': b.canvas,
-    '--page-shadow': `0 2px 5px rgb(${shade} / 0.28), 0 12px 30px rgb(${shade} / 0.32)`,
-    '--shadow': `0 3px 8px rgb(${shade} / 0.22), 0 16px 40px rgb(${shade} / 0.34)`,
+    '--page-shadow': `0 2px 6px rgb(${shade} / 0.12), 0 12px 32px rgb(${shade} / 0.18)`,
+    '--shadow': `0 6px 16px rgb(${shade} / 0.12), 0 24px 64px rgb(${shade} / 0.22)`,
     '--ok': dark ? '#8ed3a8' : '#16794a',
     '--warn': dark ? '#f1c878' : '#9a5b00',
     '--danger': dark ? '#ff9d9b' : '#b42318',
@@ -114,7 +120,7 @@ export function deleteCustomUiTheme(id: string) {
   if (currentUiTheme() === id) applyUiTheme(DEFAULT_DARK);
 }
 
-/** Unknown ids use Slate. Applying a palette also updates the legacy dark/light flag. */
+/** Unknown ids use Graphite. Applying a palette also updates the legacy dark/light flag. */
 export function applyUiTheme(id: string): void {
   ensureCustomThemeCss();
   const theme = allUiThemes().find(t => t.id === id) ?? UI_THEMES[0];

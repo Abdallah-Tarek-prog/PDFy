@@ -43,7 +43,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install.ps1
 | Toolbars and menus | The Xodo-style rows, the More overflow, the Actions menu with search | `src/ui/chrome.ts`, `src/app.ts` |
 | Keyboard shortcuts | Xodo's keys, matched by key position, and the editor | `src/ui/shortcuts.ts` |
 | Window frame | No Windows caption, resize at every edge, header buttons | `host/FramelessWindow.cs` |
-| Themes | Nine interface themes | `public/themes.css`, `src/ui/themes.ts` |
+| Themes | Thirteen interface themes, with matching live previews and custom themes | `public/themes.css`, `src/ui/themes.ts` |
 | Study tools | Dictionary, read from picture, equations, Markdown notes, fonts, colours, quick setups | `src/study/` |
 | Page editor | All pages full screen: tick, rotate, delete, insert, drag to reorder | `src/ui/pageeditor.ts` |
 | New documents | Blank, lined, grid, dotted, graph, Cornell and music paper, written as a small real PDF | `src/ui/createdoc.ts` |
@@ -97,6 +97,7 @@ npm test
 | `node tests/browser-run.mjs --update` | The 2026-11-06 additions: pen shortcut, colours, Read picture, voice notes, bookmarks, new documents, page editor, zoom, pen settings, Settings, forms, library, guide |
 | `node tests/browser-run.mjs --fixture forms-review-tests.js` | Form state, radio answers across pages, blank dropdowns and saved list selections. Other review fixtures: `navigation-review-tests.js`, `input-review-tests.js`, `session-review-tests.js` |
 | `node tests/browser-run.mjs --update-visual` | Screenshots of the new screens, into `tests/output/shots` |
+| `node tests/browser-run.mjs --fixture ui-enhance-visual.js` | Theme and menu screenshots, plus menu/settings bounds at 640, 1024 and 1920 pixels |
 | `node tests/study-host-test.mjs` | Study tools in the real `PDFy.exe`: vector saving, Windows fonts, the reference window |
 | `node tests/browser-run.mjs --visual` | Screenshots of each screen and every theme, into `tests/output/shots` |
 | `node scripts/check-themes.mjs` | Readability contrast of every theme |

@@ -7,7 +7,7 @@ namespace PDFy;
 
 internal sealed partial class MainForm
 {
-    private static readonly Color HeaderColor = Color.FromArgb(0x26, 0x29, 0x2e);
+    private static readonly Color HeaderColor = Color.FromArgb(0x20, 0x23, 0x25);
     private bool _customFrame = true;
     private bool _windowFocused;
     private bool _fullScreen;

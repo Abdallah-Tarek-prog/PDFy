@@ -29,7 +29,7 @@ await part('modes', async () => {
   const s = await app.openPdfBlob(await fx('normal.pdf'), 'normal.pdf');
   await settle();
   // Each interface theme, in the three toolbar modes, as Xodo lays them out.
-  for (const theme of ['slate', 'midnight', 'mocha', 'dracula', 'nord', 'forest', 'ember', 'daylight', 'paper']) {
+  for (const theme of ['graphite', 'carbon', 'slate', 'midnight', 'mocha', 'dracula', 'nord', 'forest', 'ember', 'daylight', 'paper', 'lilac', 'sage']) {
     A.applyUiTheme(theme);
     app.setMode(theme === 'slate' || theme === 'daylight' ? 'edit' : 'view');
     await shot(`02-${theme}-${app.mode}`, 200);

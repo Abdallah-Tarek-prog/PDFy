@@ -1,5 +1,22 @@
 # PDFy design direction
 
+> **UI_Enhance branch, 2026-11-06.** Preserve the Xodo-style title bar, single tool row, document tabs,
+> side panels and page controls. Refine the existing layout with 8 px controls, 10 px menus, 14 px
+> dialogs, 36 px menu rows, consistent keyboard focus and soft shadows. Rebuild all nine existing
+> palettes and add Graphite, Carbon, Lilac and Sage. Light themes use light chrome throughout; dark themes use restrained
+> tinted surfaces. Semantic tokens colour the real UI, previews and custom themes consistently. PDF
+> content colours remain independent. Reference: https://dribbble.com/search/modern-desktop-app.
+>
+> Astra (GPT-6, medium reasoning through Codex CLI) developed reference-based ideas for this branch.
+> Its recommended charcoal-and-sage direction becomes Graphite, the default for new dark-mode setups;
+> Carbon offers the same neutral surfaces with aged brass, and Sage is the light companion. Active
+> document tabs use a fine underline; chosen tools pair a tint with an inset outline. Primary and
+> secondary text meet 4.5:1, with separate focus colours checked against every control surface.
+> References: https://dribbble.com/shots/26414766-Mail-App,
+> https://dribbble.com/shots/26823384-CT-Scan-Diagnostic-Desktop-App,
+> https://dribbble.com/shots/25117438-Music-Desktop-App-for-MacOS-Dark-Mode-Freebie.
+> Astra used published descriptions and palette metadata; full-size images were unavailable to it.
+
 > **Update 2026-11-06.** The owner changed direction after using Xodo side by side. PDFy now follows
 > Xodo's structure: the same tool layout, Xodo's keyboard shortcuts, and a window with no Windows title
 > bar. PDFy keeps its own colours. The rest of this file is the earlier "page margin" idea. It is kept as
