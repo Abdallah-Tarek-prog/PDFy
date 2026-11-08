@@ -39,7 +39,8 @@ Read this first, continue from "Next", then update this file.
 - Every opening route sorts tabs in natural A–Z order while keeping collection groups together. Manual dragging still works after opening.
 - Removed the titlebar light/dark shortcut. The selected appearance stays in Settings/View.
 - Added a stable Windows app identity and a dedicated `Meletiq.ico` for the Start menu and existing pinned shortcuts, avoiding the stale executable-icon cache.
-- User authorized making the existing repository public. Release v0.2.0 is built (37.5 MB); publication, the live update check and installation are next.
+- Repository is public and release v0.2.0 is published (37.5 MB). All 94 relevant checks passed, including a complete public-release download/install/restart and Cancel on unsaved work. Installed and verified all 936 app files, retaining `.previous-release`.
+- Start menu and pinned shortcuts use `Meletiq.ico` and `Meletiq.PDF`; the owner confirmed the eagle now appears in the taskbar menu.
 
 ## Next
 1. Future installations need the owner's Meletiq PDF closed; never close it for them. The current build is installed.
