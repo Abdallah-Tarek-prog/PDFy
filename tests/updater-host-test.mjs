@@ -3,7 +3,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { cpSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
@@ -15,6 +15,10 @@ mkdirSync(join(root, 'tests/output'), { recursive: true });
 const install = mkdtempSync(join(root, 'tests/output/update-e2e-'));
 const release = join(root, `tests/output/release-${version}/payload`);
 cpSync(release, install, { recursive: true });
+const baseline = dirname(process.env.PDFY_OLD_EXE);
+for (const name of ['PDFy.exe','Meletiq.ico','WebView2Loader.dll','runtimes','web','release.json']) {
+  const source = join(baseline,name); if (existsSync(source)) cpSync(source,join(install,name),{recursive:true});
+}
 copyFileSync(process.env.PDFY_OLD_EXE, join(install, 'PDFy.exe'));
 writeFileSync(join(install, 'owner-document.pdf'), 'owner document marker');
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -85,6 +89,7 @@ try {
   await page.eval(`[...document.querySelectorAll('.dialog-foot button')].find(b => b.textContent === "Don't save").click(); 1`);
   page.ws.close(); page = await connect(version);
   check(hash(join(install, 'PDFy.exe')) === hash(join(release, 'PDFy.exe')), 'Updater installs the published native executable and restarts');
+  check(await page.eval(`!!document.querySelector('[aria-label="Side by side"]')`), 'New web interface loads after updating the existing browser profile');
   check(hash(join(install, '.previous-release/PDFy.exe')) === oldHash, 'Previous native release is retained for rollback');
   check(readFileSync(join(install, 'owner-document.pdf'), 'utf8') === 'owner document marker', 'Unrelated documents remain untouched');
   await page.eval(`window.chrome.webview.postMessage({type:'update-check'}); 1`);

@@ -43,7 +43,7 @@ Read this first, continue from "Next", then update this file.
 - Start menu and pinned shortcuts use `Meletiq.ico` and `Meletiq.PDF`; the owner confirmed the eagle now appears in the taskbar menu.
 
 ## Next
-0. Side-by-side workspace is ready for v0.3.0. Both halves have their own selected document, tab bar, reading state and tools. Tabs can move between halves; toolbar/panels follow the selected pane. All 17 split-view checks, 17 Windows-host checks, typecheck/build, 26 unit checks and affected tab/library/session/reload regressions passed. The 37.5 MB package is ready for publication and installation.
+0. Side-by-side workspace shipped in v0.3.0. Both halves have their own selected document, tab bar, reading state and tools. Tabs can move between halves; toolbar/panels follow the selected pane. All 17 split-view checks, 17 Windows-host checks, typecheck/build, 26 unit checks and affected tab/library/session/reload regressions passed. Published the 37.5 MB release, verified the complete 0.2.0→0.3.0 upgrade with 12 checks (including new web assets in an existing profile), installed all 936 verified files and reopened the owner's app. `.previous-release` contains 0.2.0.
 1. Future installations need the owner's Meletiq PDF closed; never close it for them. The current build is installed.
 2. Fix the 5 failing page tests listed above (history entries, font and colour pickers).
 3. Ask the owner whether minimise still looks wrong after installing; if so, get a screen recording.
