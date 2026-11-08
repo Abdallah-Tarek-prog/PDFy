@@ -38,7 +38,7 @@ const [a, b, c, d] = sessions;
 try {
   await test('Saved collections appear as colored contiguous browser-style tab groups', async () => {
     check(document.querySelectorAll('.tab-group').length === 2, 'Missing collection group headers');
-    check(groupNames(groups[0].id) === 'Sorting.pdf,Graphs.pdf', 'Collection members are not together in order');
+    check(groupNames(groups[0].id) === 'Graphs.pdf,Sorting.pdf', 'Collection members are not alphabetized together');
     check(groupElement(groups[0].id).style.getPropertyValue('--group-colour') === '#4f8cf7', 'Collection color was not used');
     check(header(groups[0].id).textContent.includes('Algorithms') && header(groups[0].id).textContent.includes('2'), 'Header name or count is incorrect');
     check(!tab(d).closest('.tab-group'), 'An ungrouped document was grouped');
@@ -56,7 +56,8 @@ try {
     await until(async () => (await api.listCollections()).find(g => g.id === groups[0].id)?.collapsed === true);
     await app.collectionsChanged();
     check(header(groups[0].id).getAttribute('aria-expanded') === 'false', 'Saved collapse state was lost on refresh');
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', ctrlKey: true, bubbles: true, cancelable: true }));
+    const digit = String(app.sessions.indexOf(a) + 1);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: digit, code: 'Digit' + digit, ctrlKey: true, bubbles: true, cancelable: true }));
     await wait(90);
     check(header(groups[0].id).getAttribute('aria-expanded') === 'true' && tab(a).getBoundingClientRect().width > 0, 'Keyboard activation did not reveal a collapsed active tab');
     check(Math.abs(app.viewer.scroller.scrollTop - top) < 2, 'Expanding changed the reading position');
@@ -115,6 +116,7 @@ try {
     check(groupNames(groups[1].id) === 'Logic.pdf', 'Reopening failed to restore the group');
   });
   await test('Canceling an unsaved close stops closing the rest of the group', async () => {
+    c.addAnnots(c.pages[0], [{ id: 'first-group-unsaved', kind: 'rect', rect: [10,10,40,40], color: '#123456', width: 1, opacity: 1 }]);
     context(header(groups[0].id), 'Close group');
     await until(() => document.querySelector('.overlay-bg')?.textContent.includes('Save your changes'));
     [...document.querySelectorAll('.dialog-foot button')].find(e => e.textContent === 'Cancel').click();

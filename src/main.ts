@@ -29,6 +29,7 @@ import * as study from './study/testing';
 import * as library from './features/library';
 import { makePaperPdf } from './ui/createdoc';
 import { GUIDE_VERSION } from './ui/guide';
+import { onUpdateMessage } from './features/updates';
 
 // Last line of defence. An unexpected error shows a message and the app carries on.
 window.addEventListener('error', e => {
@@ -59,6 +60,7 @@ window.chrome?.webview?.addEventListener('message', e => {
   onFontMessage(e.data as Parameters<typeof onFontMessage>[0]);
   onPageMessage(e.data as Parameters<typeof onPageMessage>[0]);
   onLocationMessage(e.data, e.additionalObjects);
+  onUpdateMessage(e.data);
   const type = (e.data as { type?: string } | null)?.type;
   // Only "Open with" hands over a file to open; a located file's fresh handle goes to whoever asked.
   const handle = type === 'open' ? e.additionalObjects?.[0] as FileSystemFileHandle | undefined : undefined;
@@ -67,7 +69,9 @@ window.chrome?.webview?.addEventListener('message', e => {
   // One after another, so tabs keep the order the files were handed over in.
   if (handle) openQueue = openQueue.then(() => app.openHandle(handle)).catch(err => reportError('Opening', err));
   if (type === 'close-request') {
-    app.closeAllForExit().then(ok => { if (ok) window.chrome?.webview?.postMessage({ type: 'close-ok' }); }).catch(err => reportError('Closing', err));
+    app.closeAllForExit().then(ok => window.chrome?.webview?.postMessage({ type: ok ? 'close-ok' : 'close-cancel' })).catch(err => {
+      window.chrome?.webview?.postMessage({ type: 'close-cancel' }); reportError('Closing', err);
+    });
   }
 });
 window.chrome?.webview?.postMessage({ type: 'ready' });
@@ -75,5 +79,6 @@ window.chrome?.webview?.postMessage({ type: 'ready' });
 // Used by the automated tests.
 if (location.hostname === 'localhost' || new URLSearchParams(location.search).has('test')) {
   Object.assign(window, { __fileLocations: { onLocationMessage, installNativePickers, rememberLocation } });
+  Object.assign(window, { __appUpdates: { onUpdateMessage } });
   Object.assign(window, { __pdfy: app, __api: { ...jobs, ...engine, ...recovery, ...images, ...decor, ...convert, ...compare, ...xfdf, ...search, ...decoders, ...detect, ...batch, ...ocr, ...office, ...sign, ...docmodel, ...docxEditor, ...study, ...library, makePaperPdf, GUIDE_VERSION, installedFonts, addFontFiles, applyUiTheme, unzipSync, strFromU8, Session } });
 }

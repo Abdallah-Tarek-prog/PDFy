@@ -80,7 +80,7 @@ await test('Shift/range and Ctrl+A selection work, and refresh keeps the selecte
   finally { await window.__cdp('Emulation.clearDeviceMetricsOverride', {}); }
 });
 
-await test('Recently closed Open all restores reordered tabs despite closing left-to-right', async () => {
+await test('Recently closed Open all alphabetizes reordered tabs and restores the saved page', async () => {
   await reset(); const { handles } = await files();
   for (const h of handles) await app.openHandle(h);
   const [a,b,c] = [...app.sessions]; app.moveTab(c, 0); await app.orderWrites;
@@ -88,7 +88,7 @@ await test('Recently closed Open all restores reordered tabs despite closing lef
   const history = await api.listClosed();
   ok([...history].sort((a,b) => a.order - b.order).map(f => f.name).join(',') === 'C.pdf,A.pdf,B.pdf', 'close operations shifted the recorded tab positions');
   await show('Recently closed'); document.querySelector('.home-open-all').click(); await opened();
-  ok(tabNames() === 'C.pdf,A.pdf,B.pdf' && app.viewer.current === 2, `history reopened in ${tabNames()} or lost the last file's page`);
+  ok(tabNames() === 'A.pdf,B.pdf,C.pdf' && app.viewer.current === 3, `history reopened in ${tabNames()} or lost the last file's page`);
   ok(!(await api.listClosed()).length, 'successfully reopened entries remained in history');
 });
 
@@ -106,14 +106,14 @@ await test('Already-open tabs are reused, collection members stay together and o
   ok(other.dirty && other.pages[0].annots.some(a => a.id === 'outside-edit'), 'grouping lost the other document’s unsaved edits');
 });
 
-await test('Recently closed opens only the selected entries in their original tab order', async () => {
+await test('Recently closed opens only the selected entries alphabetically', async () => {
   await reset(); const { handles } = await files();
   for (const h of handles) await app.openHandle(h);
   const [a,b,c] = [...app.sessions]; app.moveTab(c, 0); await app.orderWrites;
   for (const s of [c,a,b]) await app.closeSession(s);
   await show('Recently closed'); checkbox('B.pdf').click(); checkbox('C.pdf').click();
   document.querySelector('.home-open-selected').click(); await opened();
-  ok(tabNames() === 'C.pdf,B.pdf', `selected history opened as ${tabNames()}`);
+  ok(tabNames() === 'B.pdf,C.pdf', `selected history opened as ${tabNames()}`);
   const remaining = await api.listClosed();
   ok(remaining.length === 1 && remaining[0].name === 'A.pdf', 'opening selected history consumed an unselected entry');
 });

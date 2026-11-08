@@ -3,6 +3,7 @@
 
 import { getSettings, saveSettings, DEFAULT_PEN, type PenSettings } from '../core/settings';
 import { CLOSED_DAYS, clearClosed } from '../features/library';
+import { updateControls } from '../features/updates';
 import { allThemes } from '../study/mdthemes';
 import { allSets, customSets, saveCustomSets } from '../study/prefsets';
 import { OCR_LANGUAGES } from '../study/ui';
@@ -305,6 +306,7 @@ function general(app: App): HTMLElement {
   author.addEventListener('change', () => saveSettings({ author: author.value.trim() || 'Meletiq PDF user' }));
   return h('div', { class: 'st-section' },
     setting('Your name', 'Shown on comments and markups you add.', author),
+    updateControls(),
     setting('Recently closed documents', `Kept for ${CLOSED_DAYS} days on the Home screen, then forgotten. Only a link to each file is kept, never a copy.`,
       h('button', { class: 'btn small', onclick: safe(async () => { await clearClosed(); toast('The recently closed list is empty.', 'ok'); }) }, 'Clear the list')),
     h('h3', { class: 'st-sub' }, 'Help'),

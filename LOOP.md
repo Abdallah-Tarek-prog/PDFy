@@ -32,7 +32,14 @@ Read this first, continue from "Next", then update this file.
 - Switching tabs restores each document's reading position, zoom and page layout.
 - Collections now appear as coloured, collapsible tab groups, with saved membership, rename/colour controls and drag-to-group.
 - Build, typecheck and 63 relevant checks passed. Installed and hash-verified all 932 web files (45.3 MB), then reopened the app successfully. Previous web files are in `app/web-before-tabs-groups-20261108`.
-- App source, assets and tests are pushed to the private `UI_Enhance` branch. Automatic updates are not implemented.
+- App source, assets and tests were pushed to `UI_Enhance`.
+
+## Release update work on 2026-11-08
+- Added a GitHub Releases updater: checks at startup/every six hours, verifies the archive and every app file, and applies after the normal save/close flow. Settings has automatic updates, Check for updates and Restart to update. Package installation keeps a previous-release backup and rolls back on failure.
+- Every opening route sorts tabs in natural A–Z order while keeping collection groups together. Manual dragging still works after opening.
+- Removed the titlebar light/dark shortcut. The selected appearance stays in Settings/View.
+- Added a stable Windows app identity and a dedicated `Meletiq.ico` for the Start menu and existing pinned shortcuts, avoiding the stale executable-icon cache.
+- User authorized making the existing repository public. Release v0.2.0 is built (37.5 MB); publication, the live update check and installation are next.
 
 ## Next
 1. Future installations need the owner's Meletiq PDF closed; never close it for them. The current build is installed.

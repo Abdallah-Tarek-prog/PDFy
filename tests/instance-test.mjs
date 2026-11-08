@@ -81,7 +81,7 @@ try {
   await until(page, `document.querySelectorAll('.doc-tab').length >= 4`);
   await wait(1500);
   const order1 = await tabs(page);
-  check('Files opened together arrive as tabs in A–Z order', JSON.stringify(order1) === JSON.stringify(['Part 10.pdf', 'a.pdf', 'b.pdf', 'Part 2.pdf']), order1.join(', '));
+  check('Separate and batch opens share natural A–Z tab order', JSON.stringify(order1) === JSON.stringify(['a.pdf', 'b.pdf', 'Part 2.pdf', 'Part 10.pdf']), order1.join(', '));
   check('Still only one PDFy running', exeCount() === 1);
 
   // 3. Opening a file that is already open switches to its tab instead of adding a copy.
@@ -101,8 +101,8 @@ try {
   })()`);
   await until(page, `document.querySelectorAll('.doc-tab').length >= 8`);
   await wait(800);
-  const dropped = (await tabs(page)).slice(4);
-  check('Dropped files open in A–Z order', JSON.stringify(dropped) === JSON.stringify(['alpha.pdf', 'Doc 9.pdf', 'Doc 10.pdf', 'zeta.pdf']), dropped.join(', '));
+  const dropped = await tabs(page);
+  check('Dropped files merge into the same A–Z tab order', JSON.stringify(dropped) === JSON.stringify(['a.pdf', 'alpha.pdf', 'b.pdf', 'Doc 9.pdf', 'Doc 10.pdf', 'Part 2.pdf', 'Part 10.pdf', 'zeta.pdf']), dropped.join(', '));
 
   // 5. Minimise: the window must not slide sideways first.
   const hwnd = ps(`(Get-Process -Id ${main.pid}).MainWindowHandle`);

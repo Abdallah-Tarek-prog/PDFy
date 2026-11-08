@@ -12,6 +12,9 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (AppUpdater.TryApply(args)) return;
+        ShellIdentity.SetProcess();
+        if (args.FirstOrDefault() == "--repair-taskbar") { ShellIdentity.RepairShortcuts(); return; }
         // The last line of defence. A message box is better than a window that just vanishes.
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) => Log("UI thread: " + e.Exception);
@@ -25,6 +28,11 @@ internal static class Program
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        if (Environment.GetEnvironmentVariable("PDFY_DEV") != "1")
+        {
+            try { ShellIdentity.RepairShortcuts(); }
+            catch (Exception e) { Log("Taskbar shortcut: " + e.Message); }
+        }
         Application.Run(new MainForm(args));
         SingleInstance.Release();
         CrashLog.SessionEnded();
@@ -52,6 +60,10 @@ internal sealed partial class MainForm : Form
     private readonly HashSet<string> _knownFiles = LoadKnownFiles();
     private bool _pageReady;
     private bool _closeApproved;
+    private readonly AppUpdater _updater;
+    private bool _restartForUpdate;
+    private bool _applyingUpdate;
+    private readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 60 * 60 * 1000 };
     private int _restarts;
     private DateTime _lastRestart = DateTime.MinValue;
     private string _lastMemory = "none yet";
@@ -62,8 +74,9 @@ internal sealed partial class MainForm : Form
     public MainForm(string[] args)
     {
         Text = "Meletiq PDF";
+        _updater = new AppUpdater(message => _web.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(message)));
         BackColor = HeaderColor;
-        Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Icon = File.Exists(ShellIdentity.IconPath) ? new Icon(ShellIdentity.IconPath) : Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         MinimumSize = new Size(640, 420);
         Controls.Add(_web);
         RestoreBounds_();
@@ -80,6 +93,8 @@ internal sealed partial class MainForm : Form
         Resize += (_, _) => TrimWhenMinimised();
         _memoryTimer.Tick += (_, _) => SampleMemory();
         _memoryTimer.Start();
+        _updateTimer.Tick += (_, _) => { if (_pageReady) _ = _updater.CheckAsync(false); };
+        if (Environment.GetEnvironmentVariable("PDFY_DEV") != "1") _updateTimer.Start();
     }
 
     /// <summary>
@@ -319,6 +334,24 @@ internal sealed partial class MainForm : Form
                     SampleMemory();
                     SendWindowState();
                     SendPendingFiles();
+                    _updater.SendState();
+                    if (Environment.GetEnvironmentVariable("PDFY_DEV") != "1") _ = _updater.CheckAsync(false);
+                    break;
+                case "update-state":
+                    if (e.Source.StartsWith($"https://{Host}/", StringComparison.OrdinalIgnoreCase)) _updater.SendState();
+                    break;
+                case "update-check":
+                    if (e.Source.StartsWith($"https://{Host}/", StringComparison.OrdinalIgnoreCase)) _ = _updater.CheckAsync(true);
+                    break;
+                case "update-enabled":
+                    if (e.Source.StartsWith($"https://{Host}/", StringComparison.OrdinalIgnoreCase)) _updater.SetEnabled(doc.RootElement.GetProperty("enabled").GetBoolean());
+                    break;
+                case "update-install":
+                    if (e.Source.StartsWith($"https://{Host}/", StringComparison.OrdinalIgnoreCase) && _updater.Ready)
+                    { _restartForUpdate = true; Close(); }
+                    break;
+                case "close-cancel":
+                    _restartForUpdate = false;
                     break;
                 case "win":
                     HandleWindowAction(doc.RootElement.GetProperty("action").GetString());
@@ -898,6 +931,11 @@ internal sealed partial class MainForm : Form
         SaveBounds();
         if (_closeApproved || !_pageReady || _web.CoreWebView2 is null)
         {
+            if (_updater.Ready && !_applyingUpdate)
+            {
+                try { _updater.ApplyAfterExit(_restartForUpdate); _applyingUpdate = true; }
+                catch (Exception ex) { Program.Log("Starting update: " + ex.Message); }
+            }
             SingleInstance.StopAccepting();
             return;
         }

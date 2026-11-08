@@ -17,6 +17,8 @@ Pen and tablet, Pages and moving around, Study tools, Quick setups, and General 
 guide opens on the first start and once after each update.
 
 Each document tab keeps its page, scroll position, zoom and layout when you switch away and return.
+Every opening route inserts tabs in natural A–Z order (Part 2 before Part 10), including Explorer,
+pickers, drops, history and recovery. Collection members remain together and alphabetized.
 Collections appear as coloured, collapsible tab groups. Right-click a group to rename it, change its
 colour or close its open tabs; drag a document into a group to add it.
 
@@ -87,6 +89,19 @@ The dictionary in `vendor-dict` is already built. To rebuild it from the newest 
 node scripts/build-dictionary.mjs vendor-dict
 ```
 
+## GitHub release updates
+
+Meletiq PDF checks public releases at startup and every six hours, downloads newer stable Windows
+packages, and verifies GitHub's SHA-256 checksum plus every packaged file. Updates install after
+the normal save/close flow; Settings → General and help also offers **Check for updates** and
+**Restart to update**. Canceling an unsaved-document prompt cancels the restart. The previous
+release stays in `app/.previous-release`; documents and the local data folder are preserved.
+
+Build a release archive with `pwsh -File scripts/package-release.ps1`. After running the relevant
+tests and committing/pushing the source, add `-Publish` to publish that exact version to GitHub.
+Increase the matching versions in `package.json`, `package-lock.json` and `host/PDFy.Host.csproj`
+before the next release. A source push alone does not distribute an app update.
+
 ## Test
 
 ```bash
@@ -96,6 +111,10 @@ npm test
 | Command | What it tests |
 |---|---|
 | `npm test` | Theme engine and geometry, no browser |
+| `node tests/browser-run.mjs --fixture open-order-tests.js` | A–Z tabs from pickers, drops, separate opens, collections, history and recovery; selected theme is preserved |
+| `node tests/browser-run.mjs --fixture updater-ui-tests.js` | Update settings, download/error/ready states and narrow-window layout |
+| `dotnet run --project tests/native-update/UpdateTests.csproj` | Package checksums, unsafe archive paths, install backups and rollback on a locked file |
+| `node tests/updater-host-test.mjs` | Published-release download and restart, including Cancel on unsaved work; requires `PDFY_OLD_EXE` pointing to an older build with the updater |
 | `node tests/browser-run.mjs` | Every feature, in a hidden Edge window |
 | `node tests/browser-run.mjs --ui` | Real mouse and keyboard, in a hidden Edge window |
 | `node tests/browser-run.mjs --commands` | Every toolbar and menu command through its real dialog |

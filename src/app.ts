@@ -44,7 +44,7 @@ import { openSettings, type SettingsSection } from './ui/settings';
 import { maybeShowGuide, showGuide } from './ui/guide';
 import { addClosed, listClosed, listCollections, listItems, moveCollectionFile, rememberTabOrder, removeClosed, updateCollection, type ClosedFile, type Collection } from './features/library';
 import { keyLabel, match, shortcutsDialog } from './ui/shortcuts';
-import { applyUiTheme, currentUiTheme, DEFAULT_DARK, DEFAULT_LIGHT, UI_THEMES } from './ui/themes';
+import { applyUiTheme, currentUiTheme, UI_THEMES } from './ui/themes';
 import { isReadingTool, REST_TOOL, Tools, type Tool } from './view/tools';
 import { installGestures } from './view/gestures';
 import { toScreen, viewportFor } from './core/model';
@@ -189,8 +189,6 @@ export class App {
       h('header', { class: 'titlebar' },
         h('div', { class: 'brand' }, h('img', { src: 'brand/app-icon.svg', width: 20, height: 20, alt: '' }), h('span', null, 'Meletiq PDF')),
         this.titleText,
-        h('div', { class: 'title-actions' },
-          h('button', { class: 'icon-btn', title: 'Light or dark interface', 'aria-label': 'Switch light or dark', onclick: () => this.toggleUiTheme() }, icon('contrast', 15))),
         windowButtons()),
       h('div', { class: 'toolbar' }, this.row.el),
       h('div', { class: 'tabstrip' }, this.homeBtn, this.tabsEl,
@@ -982,6 +980,13 @@ export class App {
     for (const s of this.sessions) s.tabOrder = this.nextTabOrder = Math.max(Date.now(), this.nextTabOrder + 1);
   }
 
+  /** Every opening route uses the same natural A–Z order; collection members stay together. */
+  private sortOpenedTabs() {
+    this.sessions.sort((a, b) => byName.compare(a.name, b.name));
+    this.keepCollectionTabsTogether();
+    this.updateTabOrder();
+  }
+
   private keepCollectionTabsTogether() {
     const groups = new Map<string, Session[]>();
     for (const s of this.sessions) if (s.collectionId) {
@@ -1092,6 +1097,7 @@ export class App {
     this.showingHome = false;
     session.tabOrder = this.nextTabOrder = Math.max(Date.now(), this.nextTabOrder + 1);
     this.sessions.push(session);
+    this.sortOpenedTabs();
     this.listen(session);
     this.activate(session);
   }
@@ -1221,11 +1227,11 @@ export class App {
         if ((err as Error).name === 'AbortError') return;
         throw err;
       }
-      for (const handle of handles) await this.openHandle(handle);
+      for (const handle of handles.sort((a, b) => byName.compare(a.name, b.name))) await this.openHandle(handle);
       return;
     }
     const files = await pickFiles('.pdf,image/*', true);
-    for (const f of files) await this.openFile(f);
+    for (const f of files.sort((a, b) => byName.compare(a.name, b.name))) await this.openFile(f);
   }
 
   async openHandle(handle: FileSystemFileHandle, page?: number) {
@@ -1850,12 +1856,6 @@ export class App {
   setReading(mode: 'normal' | 'night' | 'sepia') {
     this.reading = mode;
     this.viewer.scroller.dataset.reading = mode;
-    this.syncRibbon();
-  }
-
-  toggleUiTheme() {
-    const dark = UI_THEMES.find(t => t.id === currentUiTheme())?.dark;
-    applyUiTheme(dark ? DEFAULT_LIGHT : DEFAULT_DARK);
     this.syncRibbon();
   }
 
@@ -3132,17 +3132,12 @@ export class App {
     }
   }
 
-  /** Open a library selection in saved order; failures stay available for retry. */
+  /** Open a library selection A–Z; failures stay available for retry. */
   async openLibraryFiles(files: HomeFile[]): Promise<string[]> {
     if (!files.length) return [];
     await this.orderWrites;
-    let entries = [...files];
+    const entries = [...files].sort((a, b) => byName.compare(a.name, b.name));
     const collection = entries[0]?.collection;
-    if (collection) {
-      const saved = new Map((await listItems(collection)).map(item => [item.id, item.order ?? item.added]));
-      entries = entries.map(file => ({ ...file, order: saved.get(file.id) ?? file.order }));
-    }
-    entries.sort((a, b) => a.order - b.order);
     // Ask for every stored file's access first, while the click that started this still counts.
     const allowed = new Set<HomeFile>();
     for (const entry of entries) {
@@ -3183,19 +3178,15 @@ export class App {
         else failed.push(entry.name);
       } catch { failed.push(entry.name); }
     }
-    // Reuse already-open documents and restore only the selected tab slots, leaving other tabs in place.
-    // A tab closed while later files were still loading stays closed.
+    // Reuse already-open documents; a tab closed while later files loaded stays closed.
     const live = opened.filter(s => this.sessions.includes(s));
     if (live.length) {
-      const chosen = new Set(live); let at = 0;
-      this.sessions = this.sessions.map(s => chosen.has(s) ? live[at++] : s);
       if (collection) {
         for (const s of live) { s.collectionId = collection; this.ungroupedTabs.delete(s); }
         const group = this.tabGroups.get(collection);
         if (group) { group.collapsed = false; void updateCollection(group); }
       }
-      this.keepCollectionTabsTogether();
-      this.updateTabOrder(); this.drawTabs();
+      this.sortOpenedTabs(); this.drawTabs();
     }
     if (failed.length) toast(`Could not open ${failed.slice(0, 3).map(name => `“${name}”`).join(', ')}${failed.length > 3 ? ` and ${failed.length - 3} more` : ''}. Their entries were kept.`, 'error', 6000);
     return ids;

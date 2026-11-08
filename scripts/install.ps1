@@ -86,5 +86,8 @@ namespace PDFyShell {
 }
 [PDFyShell.Associations]::SHChangeNotify(0x08000000, 0x1000, [IntPtr]::Zero, [IntPtr]::Zero)
 
+# The native helper applies the same Windows app identity to Start menu and existing taskbar links.
+& $exe --repair-taskbar
+
 if ($OpenWithOnly) { Write-Host 'Meletiq PDF is registered in "Open with" for PDF files.' }
 else { Write-Host 'Meletiq PDF is in the Start menu and in "Open with" for PDF files.' }

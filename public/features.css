@@ -335,3 +335,6 @@ html[data-mode=view] .annot.own-field .field-label { display: none; }
 .help-step { padding: 10px 12px; border-radius: 9px; background: var(--surface-2); }
 .help-step p { margin: 3px 0 0; color: var(--muted); }
 .side.behind-home { display: none !important; }
+/* Update controls use the existing Settings rows and buttons. */
+.st-updates { margin-bottom: 18px; }
+.update-status { margin: 8px 0; }
