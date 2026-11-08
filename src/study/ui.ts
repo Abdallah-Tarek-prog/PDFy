@@ -60,11 +60,15 @@ export class Study {
   private readToken = 0;
 
   constructor(private host: StudyHost) {
+    this.watchViewer(host.viewer);
+  }
+
+  watchViewer(viewer: Viewer) {
     // Only a selection made by this click counts, not one left over from before.
-    host.viewer.scroller.addEventListener('pointerdown', () => { this.selAtDown = window.getSelection()?.toString().trim() ?? ''; }, true);
-    host.viewer.scroller.addEventListener('pointerup', () => setTimeout(() => this.afterSelect(), 0));
-    host.viewer.scroller.addEventListener('dblclick', e => safe(() => this.lookupAt(e), 'Looking up')());
-    host.viewer.scroller.addEventListener('scroll', () => closeDictionary(), { passive: true });
+    viewer.scroller.addEventListener('pointerdown', () => { this.selAtDown = window.getSelection()?.toString().trim() ?? ''; }, true);
+    viewer.scroller.addEventListener('pointerup', () => setTimeout(() => this.afterSelect(), 0));
+    viewer.scroller.addEventListener('dblclick', e => safe(() => this.lookupAt(e), 'Looking up')());
+    viewer.scroller.addEventListener('scroll', () => closeDictionary(), { passive: true });
   }
 
   // ---- Word lookup ----

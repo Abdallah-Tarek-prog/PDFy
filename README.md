@@ -22,6 +22,11 @@ pickers, drops, history and recovery. Collection members remain together and alp
 Collections appear as coloured, collapsible tab groups. Right-click a group to rename it, change its
 colour or close its open tabs; drag a document into a group to add it.
 
+Use the split button beside the tabs, or **View → Side by side**, for two document panes with
+independent tab bars. Right-click a tab and choose **Open beside** or **Move to other pane**, or
+drag it between halves. Click a pane to control its zoom, page, editing tools and side panels.
+The split button merges both tab bars again without closing documents or losing edits.
+
 ## Run it
 
 Double-click `app/PDFy.exe`. To open a file directly, use "Open with" in Explorer and pick that exe.
@@ -112,6 +117,7 @@ npm test
 |---|---|
 | `npm test` | Theme engine and geometry, no browser |
 | `node tests/browser-run.mjs --fixture open-order-tests.js` | A–Z tabs from pickers, drops, separate opens, collections, history and recovery; selected theme is preserved |
+| `node tests/browser-run.mjs --fixture split-view-tests.js` | Independent panes, toolbar focus, editing/saving, tab moves, collections, empty-pane opening and narrow-window layout |
 | `node tests/browser-run.mjs --fixture updater-ui-tests.js` | Update settings, download/error/ready states and narrow-window layout |
 | `dotnet run --project tests/native-update/UpdateTests.csproj` | Package checksums, unsafe archive paths, install backups and rollback on a locked file |
 | `node tests/updater-host-test.mjs` | Published-release download and restart, including Cancel on unsaved work; requires `PDFY_OLD_EXE` pointing to an older build with the updater |

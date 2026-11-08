@@ -8,11 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 if (!process.env.PDFY_OLD_EXE) throw new Error('Set PDFY_OLD_EXE to an older native build that includes the updater.');
 const profile = mkdtempSync(join(tmpdir(), 'meletiq-update-profile-'));
 mkdirSync(join(root, 'tests/output'), { recursive: true });
 const install = mkdtempSync(join(root, 'tests/output/update-e2e-'));
-const release = join(root, 'tests/output/release-0.2.0/payload');
+const release = join(root, `tests/output/release-${version}/payload`);
 cpSync(release, install, { recursive: true });
 copyFileSync(process.env.PDFY_OLD_EXE, join(install, 'PDFy.exe'));
 writeFileSync(join(install, 'owner-document.pdf'), 'owner document marker');
@@ -52,7 +53,7 @@ async function connect(version) {
         if (await p.eval('!!window.__pdfy')) {
           await p.eval(`window.__updateState = null; window.chrome.webview.addEventListener('message', e => { if (e.data?.type === 'app-update') window.__updateState = e.data; }); window.chrome.webview.postMessage({type:'update-state'}); 1`);
           await wait(150);
-          if (await p.eval(`window.__updateState?.currentVersion === '${version}'`)) return p;
+          if (await p.eval(version ? `window.__updateState?.currentVersion === ${JSON.stringify(version)}` : `typeof window.__updateState?.currentVersion === 'string'`)) return p;
         }
         ws.close();
       }
@@ -68,12 +69,13 @@ async function until(expression, timeout = 15000) {
 }
 try {
   child = spawn(join(install, 'PDFy.exe'), [], { env: { ...process.env, PDFY_DEV: '1', PDFY_TEST_DATA_DIR: profile, PDFY_DEBUG_PORT: String(port) }, stdio: 'ignore', windowsHide: true });
-  page = await connect('0.1.0');
+  page = await connect();
+  check(await page.eval(`window.__updateState.currentVersion !== ${JSON.stringify(version)}`), 'Baseline app has an older version');
   check(true, 'Older installed app starts with an isolated profile');
   await page.eval(`window.chrome.webview.postMessage({type:'update-check'}); 1`);
   check(await until(`['ready','error'].includes(window.__updateState?.phase)`, 180000), 'Public release check and download complete');
   const status = await page.eval('window.__updateState');
-  check(status.phase === 'ready' && status.latestVersion === '0.2.0', 'GitHub package checksum and manifest are verified: ' + status.message);
+  check(status.phase === 'ready' && status.latestVersion === version, 'GitHub package checksum and manifest are verified: ' + status.message);
   await page.eval(`window.__pdfy.newDocument().markDirty(); window.chrome.webview.postMessage({type:'update-install'}); 1`);
   check(await until(`document.querySelector('.overlay-bg')?.textContent.includes('Save your changes')`), 'Restart offers to save unsaved work');
   await page.eval(`[...document.querySelectorAll('.dialog-foot button')].find(b => b.textContent === 'Cancel').click(); 1`); await wait(300);
@@ -81,7 +83,7 @@ try {
   await page.eval(`window.chrome.webview.postMessage({type:'update-install'}); 1`);
   check(await until(`document.querySelector('.overlay-bg')?.textContent.includes('Save your changes')`), 'A canceled update can be retried');
   await page.eval(`[...document.querySelectorAll('.dialog-foot button')].find(b => b.textContent === "Don't save").click(); 1`);
-  page.ws.close(); page = await connect('0.2.0');
+  page.ws.close(); page = await connect(version);
   check(hash(join(install, 'PDFy.exe')) === hash(join(release, 'PDFy.exe')), 'Updater installs the published native executable and restarts');
   check(hash(join(install, '.previous-release/PDFy.exe')) === oldHash, 'Previous native release is retained for rollback');
   check(readFileSync(join(install, 'owner-document.pdf'), 'utf8') === 'owner document marker', 'Unrelated documents remain untouched');

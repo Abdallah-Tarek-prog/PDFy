@@ -142,6 +142,7 @@ Source: xodo.com tool list and the Xodo app store listings.
 | Files opened or dropped together open A–Z ("Part 2" before "Part 10") | ✅ real exe; drop tested with a simulated drop, not a real mouse drag |
 | Open by file dialog and by drag and drop | ✅ dialog; 🔵 drag and drop with a real mouse |
 | Multiple documents in tabs, each retaining its page, both scroll offsets, zoom and layout when switching | ✅ |
+| Side-by-side document panes with separate tab bars; move tabs between halves, edit/save either pane, and merge back without closing files | ✅ |
 | Natural A–Z tab order from every opening route, including separate Explorer opens, file pickers, drops, collections, history and recovery | ✅ |
 | GitHub Releases updates: automatic checks/downloads, checksum verification, installation after the normal save/close flow, and a previous-release backup | ✅ |
 | Continuous, single-page and two-page views | ✅ |

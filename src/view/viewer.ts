@@ -18,7 +18,7 @@ export type LayoutMode = 'continuous' | 'facing' | 'single';
 export type FitMode = 'width' | 'page' | 'none';
 
 interface Row { y: number; h: number; w: number; pages: { index: number; x: number; w: number; h: number }[] }
-interface TabViewState { page: number; top: number; left: number; scale: number; fit: FitMode; layout: LayoutMode }
+export interface TabViewState { page: number; top: number; left: number; scale: number; fit: FitMode; layout: LayoutMode }
 
 export class PageView {
   el: HTMLElement;
@@ -93,6 +93,7 @@ export class Viewer {
   rowOf: number[] = [];
   views = new Map<string, PageView>();
   current = 0;
+  bottomInset = 56;
   selection: { pageId: string; annotId: string } | null = null;
   hooks: ViewerHooks = {};
   private frame = 0;
@@ -102,9 +103,7 @@ export class Viewer {
   private off: (() => void) | null = null;
   private ro: ResizeObserver;
   private sizeLoader = 0;
-  private tabStates = new WeakMap<Session, TabViewState>();
-
-  constructor(host: HTMLElement) {
+  constructor(host: HTMLElement, private tabStates = new WeakMap<Session, TabViewState>()) {
     this.scroller = host;
     this.sizer = h('div', { class: 'sizer' });
     host.append(this.sizer);
@@ -215,7 +214,7 @@ export class Viewer {
     this.rows = rows;
     const singleH = this.layout === 'single' ? (rows[this.rowOf[this.current]]?.h ?? 0) + GAP * 2 : y;
     // Room for the page and zoom controls that float over the bottom corners.
-    this.sizer.style.height = `${singleH + 56}px`;
+    this.sizer.style.height = `${singleH + this.bottomInset}px`;
     this.sizer.style.width = `${maxW + GAP * 2}px`;
     for (const v of this.views.values()) { this.placeView(v); v.needsRender = v.renderedAt !== this.scale || v.needsRender; }
     this.restoreAnchor(anchor);

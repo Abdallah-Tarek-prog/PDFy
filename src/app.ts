@@ -48,7 +48,7 @@ import { applyUiTheme, currentUiTheme, UI_THEMES } from './ui/themes';
 import { isReadingTool, REST_TOOL, Tools, type Tool } from './view/tools';
 import { installGestures } from './view/gestures';
 import { toScreen, viewportFor } from './core/model';
-import { Viewer, type PageView } from './view/viewer';
+import { Viewer, type PageView, type TabViewState } from './view/viewer';
 
 
 const COLOURS = ['#111111', '#d92d20', '#f79009', '#ffd400', '#0b8a4f', '#1a56db', '#7a5af8', '#ffffff'];
@@ -102,6 +102,11 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   area: 'Click each corner. Double-click or press Enter to finish.',
 };
 
+interface DocumentPane {
+  viewer: Viewer; tools: Tools; imageBar: ImageBar; el: HTMLElement; header: HTMLElement;
+  tabs: HTMLElement; empty: HTMLElement; session: Session | null; mode: 'view' | 'edit';
+}
+
 export class App {
   sessions: Session[] = [];
   session: Session | null = null;
@@ -110,6 +115,17 @@ export class App {
   private tabGroups = new Map<string, Collection>();
   private collectionRun = 0;
   private ungroupedTabs = new WeakSet<Session>();
+  private panes: DocumentPane[] = [];
+  private activePane = 0;
+  private paneOf = new WeakMap<Session, number>();
+  private tabViewStates = new WeakMap<Session, TabViewState>();
+  splitView = false;
+  private documentWorkspace!: HTMLElement;
+  private documentPanes!: HTMLElement;
+  private tabstrip!: HTMLElement;
+  private pageControls!: HTMLElement;
+  private zoomControls!: HTMLElement;
+  private splitButton = h('button', { class: 'icon-btn tab-split', title: 'View PDFs side by side', 'aria-label': 'Side by side', 'aria-pressed': 'false', onclick: () => this.toggleSplitView() }, icon('compareHold', 16));
   private saves = new Map<Session, { promise: Promise<boolean>; again: boolean; saveAs: boolean }>();
   private closing = new Map<Session, Promise<void>>();
   private reloads = new Map<Session, Promise<void>>();
@@ -120,12 +136,7 @@ export class App {
   pageEditor!: PageEditor;
   imageBar!: ImageBar;
 
-  private tabsEl = h('div', {
-    class: 'doc-tabs', role: 'tablist',
-    ondragover: (e: DragEvent) => this.dragTabOver(e),
-    ondrop: (e: DragEvent) => this.dropTab(e),
-    ondragleave: (e: DragEvent) => { if (!this.tabsEl.contains(e.relatedTarget as Node | null)) this.clearTabDrop(); },
-  });
+  private tabsEl = this.makeTabs();
   private draggedTab: Session | null = null;
   private styleBar = h('div', { class: 'style-bar', 'aria-label': 'Style' });
   private startEl = h('div', { class: 'start' });
@@ -171,7 +182,7 @@ export class App {
 
   constructor(root: HTMLElement) {
     const viewerEl = h('div', { class: 'viewer', tabindex: 0, 'aria-label': 'Document' });
-    this.viewer = new Viewer(viewerEl);
+    this.viewer = new Viewer(viewerEl, this.tabViewStates);
     this.tools = new Tools(this.viewer);
     this.panels = new Panels(this);
     this.pageEditor = new PageEditor(this);
@@ -184,28 +195,37 @@ export class App {
     this.study = new Study(this);
     this.cmd = this.defineCommands();
 
-    // Like Xodo: the app's own title bar (the Windows one is gone), one toolbar row, then the documents.
+    const leftHeader = h('div', { class: 'pane-tabbar active', 'data-pane': '0' }, this.homeBtn, this.tabsEl, this.addBtn, this.splitButton);
+    const leftPane = h('div', { class: 'stage document-pane active', 'data-pane': '0', role: 'region', 'aria-label': 'Left document pane' }, viewerEl);
+    const empty = this.emptyPane(0);
+    leftPane.append(empty);
+    this.panes.push({ viewer: this.viewer, tools: this.tools, imageBar: this.imageBar, el: leftPane, header: leftHeader, tabs: this.tabsEl, empty, session: null, mode: 'view' });
+    this.bindPaneFocus(0);
+    this.tabstrip = h('div', { class: 'tabstrip' }, leftHeader);
+    this.documentPanes = h('div', { class: 'document-panes' }, leftPane);
+    this.documentWorkspace = h('div', { class: 'document-workspace' }, this.tabstrip, this.documentPanes);
+
+    // One shared toolbar follows the selected document pane.
     root.append(
       h('header', { class: 'titlebar' },
         h('div', { class: 'brand' }, h('img', { src: 'brand/app-icon.svg', width: 20, height: 20, alt: '' }), h('span', null, 'Meletiq PDF')),
         this.titleText,
         windowButtons()),
       h('div', { class: 'toolbar' }, this.row.el),
-      h('div', { class: 'tabstrip' }, this.homeBtn, this.tabsEl,
-        this.addBtn),
-      h('main', { class: 'workspace' }, this.panels.host, h('div', { class: 'stage' }, viewerEl, this.startEl, this.styleBar,
-        h('div', { class: 'page-pill', role: 'group', 'aria-label': 'Page' },
+      h('main', { class: 'workspace' }, this.panels.host, this.documentWorkspace, this.pageEditor.el),
+    );
+    leftPane.append(this.startEl, this.styleBar,
+        this.pageControls = h('div', { class: 'page-pill', role: 'group', 'aria-label': 'Page' },
           h('button', { class: 'icon-btn small', title: 'Previous page', 'aria-label': 'Previous page', onclick: () => this.viewer.goTo(this.viewer.current - 1) }, icon('chevLeft', 14)),
           this.pageInput, h('span', { class: 'of' }, '/'), this.pageTotal,
           h('button', { class: 'icon-btn small', title: 'Next page', 'aria-label': 'Next page', onclick: () => this.viewer.goTo(this.viewer.current + 1) }, icon('chevRight', 14)),
           h('span', { class: 'pill-sep' }), this.bookmarkBtn),
-        h('div', { class: 'zoom-pill', role: 'group', 'aria-label': 'Zoom' },
+        this.zoomControls = h('div', { class: 'zoom-pill', role: 'group', 'aria-label': 'Zoom' },
           h('button', { class: 'icon-btn small', title: 'Fit width', 'aria-label': 'Fit width', onclick: () => this.viewer.setFit('width') }, icon('fitWidth', 14)),
           h('button', { class: 'icon-btn small', title: `Zoom out (${keyLabel('zoom-out')})`, 'aria-label': 'Zoom out', onclick: () => this.zoomBy(0.85) }, icon('zoomOut', 14)),
           this.zoomInput,
           h('button', { class: 'icon-btn small', title: `Zoom in (${keyLabel('zoom-in')})`, 'aria-label': 'Zoom in', onclick: () => this.zoomBy(1.18) }, icon('zoomIn', 14))),
-        this.statusMsg, this.speechBar), this.pageEditor.el),
-    );
+        this.statusMsg, this.speechBar);
 
     this.setMode('view');
     // Catch up on redraws skipped while a number box was focused, once focus has really left the bar.
@@ -223,33 +243,143 @@ export class App {
     setInterval(() => this.updateMemory(), 3000);
   }
 
+  private makeTabs() {
+    return h('div', { class: 'doc-tabs', role: 'tablist', 'aria-label': 'Documents',
+      ondragover: (e: DragEvent) => this.dragTabOver(e), ondrop: (e: DragEvent) => this.dropTab(e),
+      ondragleave: (e: DragEvent) => { if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) this.clearTabDrop(); },
+    });
+  }
+
+  private emptyPane(index: number) {
+    return h('div', { class: 'pane-empty', hidden: true }, h('p', null, 'Open a document in this pane.'),
+      h('button', { class: 'btn', onclick: safe(() => { this.focusPane(index); return this.openDialog(); }, 'Opening') }, 'Open PDF…'));
+  }
+
+  private bindPaneFocus(index: number) {
+    const pane = this.panes[index];
+    for (const element of [pane.el, pane.header]) {
+      element.addEventListener('pointerdown', () => this.focusPane(index), true);
+      element.addEventListener('focusin', () => this.focusPane(index));
+    }
+  }
+
+  /** Change which document the shared toolbar and panels control, without reattaching either view. */
+  private focusPane(index: number) {
+    if (index === this.activePane || !this.panes[index] || (index === 1 && !this.splitView)) return;
+    const focused = document.activeElement as HTMLElement | null;
+    if (focused && [this.styleBar, this.pageControls, this.zoomControls].some(control => control.contains(focused))) focused.blur();
+    this.panes[this.activePane].mode = this.mode;
+    this.tools.cancel(); this.tools.commitEdit(); this.stopReading();
+    closeWordLayer(); closeDictionary(); closeVoicePlayer();
+    this.activePane = index;
+    const pane = this.panes[index];
+    this.viewer = pane.viewer; this.tools = pane.tools; this.imageBar = pane.imageBar; this.session = pane.session;
+    this.showingHome = false;
+    pane.el.append(this.startEl, this.styleBar, this.pageControls, this.zoomControls, this.statusMsg, this.speechBar);
+    this.mode = pane.mode; this.setMode(pane.mode);
+    this.panels.attach(this.session); this.pageEditor.attach(); this.imageBar.sync();
+    this.zoomInput.value = `${Math.round(this.viewer.scale * 100)}%`;
+    this.selBar.hidden = true;
+    // Keep the tab under a pointer or keyboard event in the DOM until its action has run.
+    this.refresh(false); void this.drawStart();
+    if (!pane.el.contains(document.activeElement) && !pane.header.contains(document.activeElement)) pane.viewer.scroller.focus({ preventScroll: true });
+  }
+
+  private ensureSplitView() {
+    if (!this.panes[1]) {
+      const tabs = this.makeTabs(); tabs.setAttribute('aria-label', 'Right documents');
+      const viewerElement = h('div', { class: 'viewer', tabindex: 0, 'aria-label': 'Right document' });
+      const viewer = new Viewer(viewerElement, this.tabViewStates), tools = new Tools(viewer);
+      const imageBar = new ImageBar(viewer, () => this.deleteSelection(), () => { this.cropTarget = viewer.selection; tools.setTool('crop-image'); });
+      const home = h('button', { class: 'icon-btn tab-home', title: 'Home', 'aria-label': 'Home in right pane', onclick: () => this.toggleHome() }, icon('home', 15));
+      const add = h('button', { class: 'icon-btn tab-add', title: 'Open or create a document in the right pane', 'aria-label': 'Open or create in right pane', onclick: () => showDropdown(add, { sections: [{ name: 'New tab', items: [
+        { icon: 'open', label: 'Browse file', run: () => this.openDialog() },
+        { icon: 'newDoc', label: 'Create document', run: () => this.createDocument() },
+      ] }] }, this.chromeHooks) }, icon('plus', 15));
+      const header = h('div', { class: 'pane-tabbar', 'data-pane': '1' }, home, tabs, add);
+      const empty = this.emptyPane(1);
+      const el = h('div', { class: 'stage document-pane', 'data-pane': '1', role: 'region', 'aria-label': 'Right document pane' }, viewerElement, empty);
+      const pane: DocumentPane = { viewer, tools, imageBar, el, header, tabs, empty, session: null, mode: 'view' };
+      this.panes.push(pane); this.bindPaneFocus(1); this.wireViewer(pane); this.study.watchViewer(viewer);
+      this.documentPanes.append(el); this.tabstrip.append(header);
+    }
+    this.splitView = true;
+    this.panes[1].el.hidden = false; this.panes[1].header.hidden = false;
+    this.documentWorkspace.classList.add('split-workspace');
+    for (const pane of this.panes) { pane.viewer.bottomInset = 112; pane.viewer.relayout(pane.viewer.fit !== 'none'); }
+    this.splitButton.setAttribute('aria-pressed', 'true'); this.splitButton.title = 'Return to one document pane';
+    this.refresh();
+  }
+
+  toggleSplitView() {
+    if (!this.splitView) {
+      this.ensureSplitView();
+      const beside = this.sessions.find(s => s !== this.session);
+      if (beside) this.moveSessionToPane(beside, 1, false);
+      return;
+    }
+    const active = this.session;
+    this.panes[1].tools.cancel(); this.panes[1].tools.commitEdit();
+    this.panes[1].viewer.attach(null); this.panes[1].session = null;
+    for (const session of this.sessions) this.paneOf.set(session, 0);
+    this.focusPane(0);
+    this.splitView = false;
+    this.panes[1].el.hidden = true; this.panes[1].header.hidden = true;
+    this.documentWorkspace.classList.remove('split-workspace');
+    this.panes[0].viewer.bottomInset = 56; this.panes[0].viewer.relayout(this.panes[0].viewer.fit !== 'none');
+    this.splitButton.setAttribute('aria-pressed', 'false'); this.splitButton.title = 'View PDFs side by side';
+    this.activate(active ?? this.panes[0].session ?? this.sessions[0] ?? null);
+    this.sortOpenedTabs(); this.refresh();
+  }
+
+  /** Move the existing tab and its reading state, preserving the session and all unsaved edits. */
+  moveSessionToPane(session: Session, index: number, focus = true) {
+    if (!this.sessions.includes(session) || (index !== 0 && index !== 1)) return;
+    this.ensureSplitView();
+    const previous = this.paneOf.get(session) ?? 0;
+    const source = this.panes[previous], target = this.panes[index];
+    if (previous !== index) {
+      if (source.session === session) { source.tools.cancel(); source.tools.commitEdit(); source.viewer.attach(null); }
+      this.paneOf.set(session, index);
+      if (source.session === session) {
+        source.session = this.sessions.find(s => (this.paneOf.get(s) ?? 0) === previous) ?? null;
+        source.viewer.attach(source.session); source.imageBar.sync();
+        if (previous === this.activePane) this.session = source.session;
+      }
+    }
+    if (focus) { this.focusPane(index); this.activate(session); }
+    else { target.session = session; target.viewer.attach(session); }
+    this.refresh();
+  }
+
   // ---- Wiring ----
 
-  private wire() {
-    const v = this.viewer;
-    v.hooks.onScale = s => { this.zoomInput.value = `${Math.round(s * 100)}%`; this.imageBar.sync(); this.tools.syncCursor(); };
-    installGestures(v, { drawsWith: type => this.tools.drawsWith(type), cancelDrawing: () => this.tools.cancel() });
-    onSettings(() => { this.tools.syncCursor(); this.syncRibbon(); });
+  private wireViewer(pane: DocumentPane) {
+    const { viewer: v, tools, imageBar } = pane;
+    let pageTimer = 0;
+    v.hooks.onScale = scale => {
+      if (v === this.viewer) this.zoomInput.value = `${Math.round(scale * 100)}%`;
+      imageBar.sync(); tools.syncCursor();
+    };
+    installGestures(v, { drawsWith: type => tools.drawsWith(type), cancelDrawing: () => tools.cancel() });
     v.hooks.onPage = i => {
-      this.pageInput.value = String(i + 1);
-      this.panels.change('page');
-      this.syncBookmarks();
-      const s = this.session;
+      if (v === this.viewer) { this.pageInput.value = String(i + 1); this.panels.change('page'); this.syncBookmarks(); }
+      const s = v.session;
       if (s?.handle) {
-        clearTimeout(this.pageTimer);
-        this.pageTimer = window.setTimeout(() => rememberPage(`${s.name}:${s.pages.length}`, i), 800);
+        clearTimeout(pageTimer);
+        pageTimer = window.setTimeout(() => rememberPage(`${s.name}:${s.pages.length}`, i), 800);
       }
     };
-    v.hooks.drawMatches = pv => this.drawMatchesOn(pv);
+    v.hooks.drawMatches = pv => { if (v === this.viewer) this.drawMatchesOn(pv); };
     v.hooks.onMounted = pv => {
-      this.drawMatchesOn(pv);
-      this.imageBar.sync();
+      if (v === this.viewer) this.drawMatchesOn(pv);
+      imageBar.sync();
       reattachWordLayer(pv);
-      pv.el.classList.toggle('bookmarked', !!this.session?.bookmarks.some(b => b.pageId === pv.page.id));
+      pv.el.classList.toggle('bookmarked', !!v.session?.bookmarks.some(b => b.pageId === pv.page.id));
     };
-    this.tools.hooks = {
-      onTool: () => this.syncRibbon(),
-      onSelection: () => this.onSelection(),
+    tools.hooks = {
+      onTool: () => { if (v === this.viewer) this.syncRibbon(); },
+      onSelection: () => { if (v === this.viewer) this.onSelection(); },
       snip: safe((page: PageRef, rect: Annot['rect']) => this.doSnip(page, rect), 'Theme snip'),
       readPicture: safe((page: PageRef, rect: Annot['rect']) => this.study.readPicture(page, rect), 'Reading the picture'),
       mdTheme: () => getSettings().mdTheme,
@@ -270,16 +400,23 @@ export class App {
       measure: () => this.measure,
       author: () => this.authorName(),
     };
+    v.scroller.addEventListener('scroll', () => { imageBar.sync(); this.selBar.hidden = true; closeMenu(); }, { passive: true });
+    v.scroller.addEventListener('contextmenu', e => safe((ev: MouseEvent) => this.onPageMenu(ev), 'That menu')(e));
+    v.scroller.addEventListener('pointerup', () => setTimeout(() => { if (v === this.viewer) this.showSelBar(); }, 0));
+  }
 
+  private wire() {
+    this.wireViewer(this.panes[0]);
+    onSettings(() => { for (const pane of this.panes) pane.tools.syncCursor(); this.syncRibbon(); });
     this.pageInput.addEventListener('change', () => {
       const n = parseInt(this.pageInput.value, 10);
-      if (Number.isFinite(n)) v.goTo(n - 1);
-      v.scroller.focus();
+      if (Number.isFinite(n)) this.viewer.goTo(n - 1);
+      this.viewer.scroller.focus();
     });
     this.zoomInput.addEventListener('change', () => {
       const n = parseFloat(this.zoomInput.value);
-      if (Number.isFinite(n)) v.setScale(n / 100);
-      v.scroller.focus();
+      if (Number.isFinite(n)) this.viewer.setScale(n / 100);
+      this.viewer.scroller.focus();
     });
 
     document.addEventListener('paste', e => safe((ev: ClipboardEvent) => this.onPaste(ev), 'Pasting')(e));
@@ -296,8 +433,6 @@ export class App {
         e.preventDefault();
       }
     });
-    this.viewer.scroller.addEventListener('scroll', () => { this.imageBar.sync(); closeMenu(); }, { passive: true });
-    this.viewer.scroller.addEventListener('contextmenu', e => safe((ev: MouseEvent) => this.onPageMenu(ev), 'That menu')(e));
     this.panels.thumbs.onMenu = (e, page) => this.thumbMenu(e, page);
   }
 
@@ -349,8 +484,6 @@ export class App {
       act('copy', 'Copy (Ctrl+C)', () => { void navigator.clipboard?.writeText(window.getSelection()?.toString() ?? ''); }),
     );
     document.body.append(this.selBar);
-    this.viewer.scroller.addEventListener('pointerup', () => setTimeout(() => this.showSelBar(), 0));
-    this.viewer.scroller.addEventListener('scroll', () => { this.selBar.hidden = true; }, { passive: true });
     document.addEventListener('selectionchange', () => { if (window.getSelection()?.isCollapsed) this.selBar.hidden = true; });
   }
 
@@ -540,6 +673,7 @@ export class App {
       scroll: act('continuous', 'Scroll', () => this.viewer.setLayout('continuous'), 'Continuous pages', true, { on: () => this.viewer.layout === 'continuous' }),
       onePage: act('single', 'One page', () => this.viewer.setLayout('single'), undefined, true, { on: () => this.viewer.layout === 'single' }),
       twoPages: act('facing', 'Two pages', () => this.viewer.setLayout('facing'), undefined, true, { on: () => this.viewer.layout === 'facing' }),
+      splitView: act('compareHold', 'Side by side', () => this.toggleSplitView(), 'Two document panes with independent tabs', false, { on: () => this.splitView }),
       normal: act('sun', 'Normal', () => this.setReading('normal'), 'Normal page colours', true, { on: () => this.reading === 'normal' }),
       night: act('moon', 'Night', () => this.setReading('night'), 'Dark pages for reading at night', true, { on: () => this.reading === 'night' }),
       sepia: act('book', 'Sepia', () => this.setReading('sepia'), 'Warm pages for long reading', true, { on: () => this.reading === 'sepia' }),
@@ -566,7 +700,7 @@ export class App {
       icon: 'view', label: 'View', title: 'Page layout, zoom, page colours, reading and theme', needsDoc: false,
       menu: () => ({
         grouped: true, sections: [
-          { name: 'Layout', items: [C.scroll, C.onePage, C.twoPages] },
+          { name: 'Layout', items: [C.scroll, C.onePage, C.twoPages, C.splitView] },
           { name: 'Zoom', items: [C.fitWidth, C.fitPage, C.zoomIn, C.zoomOut] },
           { name: 'Page colours', items: [C.normal, C.night, C.sepia] },
           { name: 'Reading', items: [C.reflow, C.readAloud, C.fullscreen] },
@@ -619,6 +753,7 @@ export class App {
       this.tools.useReadingTool();
     }
     this.mode = mode;
+    if (this.panes[this.activePane]) this.panes[this.activePane].mode = mode;
     document.documentElement.dataset.mode = mode;
     const l = this.layoutFor(mode);
     this.row.set(l.left, l.right);
@@ -858,17 +993,22 @@ export class App {
   // ---- Documents and tabs ----
 
   private drawTabs() {
-    const scroll = this.tabsEl.scrollLeft;
-    const focusedGroup = document.activeElement?.closest<HTMLElement>('.tab-group')?.dataset.collectionId;
-    clear(this.tabsEl);
+    for (const [index, pane] of this.panes.entries()) this.drawPaneTabs(pane, index);
+  }
+
+  private drawPaneTabs(pane: DocumentPane, index: number) {
+    const tabs = pane.tabs, sessions = this.sessions.filter(s => (this.paneOf.get(s) ?? 0) === index);
+    const scroll = tabs.scrollLeft;
+    const focusedGroup = tabs.contains(document.activeElement) ? document.activeElement?.closest<HTMLElement>('.tab-group')?.dataset.collectionId : undefined;
+    clear(tabs);
     const containers = new Map<string, HTMLElement>();
-    for (const s of this.sessions) {
-      let container: HTMLElement = this.tabsEl;
+    for (const s of sessions) {
+      let container: HTMLElement = tabs;
       const group = s.collectionId ? this.tabGroups.get(s.collectionId) : undefined;
       if (group) {
         let existing = containers.get(group.id);
         if (!existing) {
-          const members = this.sessions.filter(item => item.collectionId === group.id);
+          const members = sessions.filter(item => item.collectionId === group.id);
           const toggle = h('button', {
             class: 'tab-group-toggle', type: 'button', 'aria-expanded': String(!group.collapsed),
             'aria-label': `${group.collapsed ? 'Expand' : 'Collapse'} ${group.name}, ${members.length} document${members.length === 1 ? '' : 's'}`,
@@ -876,15 +1016,15 @@ export class App {
             onclick: () => { group.collapsed = !group.collapsed; void updateCollection(group); this.drawTabs(); },
             oncontextmenu: (e: MouseEvent) => { e.preventDefault(); this.collectionMenu(e, group); },
           }, icon(group.collapsed ? 'chevRight' : 'chevDown', 12), h('span', { class: 'tab-group-name' }, group.name), h('span', { class: 'tab-group-count' }, String(members.length)));
-          existing = h('div', { class: `tab-group${group.collapsed ? ' collapsed' : ''}${members.includes(this.session!) ? ' has-active' : ''}`, role: 'group', 'aria-label': group.name, 'data-collection-id': group.id }, toggle);
+          existing = h('div', { class: `tab-group${group.collapsed ? ' collapsed' : ''}${members.includes(pane.session!) ? ' has-active' : ''}`, role: 'group', 'aria-label': group.name, 'data-collection-id': group.id }, toggle);
           existing.style.setProperty('--group-colour', group.colour);
           containers.set(group.id, existing);
-          this.tabsEl.append(existing);
+          tabs.append(existing);
         }
         container = existing;
       }
       const tab = h('div', {
-        class: `doc-tab${s === this.session ? ' active' : ''}`, role: 'tab', 'aria-selected': String(s === this.session), tabindex: 0,
+        class: `doc-tab${s === pane.session ? ' active' : ''}`, role: 'tab', 'aria-selected': String(s === pane.session), tabindex: 0,
         'data-session-id': s.id, draggable: true, title: `${s.name}\nDrag to reorder. Ctrl+Shift+Left/Right moves this tab.`,
         onclick: () => { this.hideHome(); this.activate(s); },
         oncontextmenu: (e: MouseEvent) => { e.preventDefault(); this.tabMenu(e, s); },
@@ -905,7 +1045,8 @@ export class App {
           if (e.target !== tab || !e.ctrlKey || !e.shiftKey || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
           e.preventDefault();
           e.stopPropagation();
-          this.moveTab(s, this.sessions.indexOf(s) + (e.key === 'ArrowLeft' ? -1 : 1));
+          const neighbor = sessions[sessions.indexOf(s) + (e.key === 'ArrowLeft' ? -1 : 1)];
+          if (neighbor) this.moveTab(s, this.sessions.indexOf(neighbor));
         },
       },
       s.dirty ? h('span', { class: 'dot', title: 'Unsaved changes' }) : null,
@@ -913,20 +1054,23 @@ export class App {
       h('button', { class: 'icon-btn small', draggable: false, title: 'Close', 'aria-label': `Close ${s.name}`, onclick: safe((e: Event) => { e.stopPropagation(); return this.closeSession(s); }, 'Closing') }, icon('close', 13)));
       container.append(tab);
     }
-    this.tabsEl.scrollLeft = scroll;
-    if (focusedGroup) this.tabsEl.querySelector<HTMLButtonElement>(`[data-collection-id="${CSS.escape(focusedGroup)}"] .tab-group-toggle`)?.focus({ preventScroll: true });
+    tabs.scrollLeft = scroll;
+    if (focusedGroup) tabs.querySelector<HTMLButtonElement>(`[data-collection-id="${CSS.escape(focusedGroup)}"] .tab-group-toggle`)?.focus({ preventScroll: true });
   }
 
   private clearTabDrop() {
-    for (const tab of this.tabsEl.querySelectorAll('.drop-before, .drop-after')) tab.classList.remove('drop-before', 'drop-after');
-    for (const group of this.tabsEl.querySelectorAll('.drop-target')) group.classList.remove('drop-target');
+    for (const pane of this.panes) {
+      for (const tab of pane.tabs.querySelectorAll('.drop-before, .drop-after')) tab.classList.remove('drop-before', 'drop-after');
+      for (const group of pane.tabs.querySelectorAll('.drop-target')) group.classList.remove('drop-target');
+    }
   }
 
-  private tabDropIndex(x: number) {
-    const next = [...this.tabsEl.querySelectorAll<HTMLElement>('.doc-tab')].find(tab => {
+  private tabDropIndex(x: number, tabs: HTMLElement = this.tabsEl) {
+    const visible = [...tabs.querySelectorAll<HTMLElement>('.doc-tab')].filter(tab => tab.getBoundingClientRect().width > 0);
+    const next = visible.find(tab => {
       const box = tab.getBoundingClientRect(); return box.width > 0 && x < box.left + box.width / 2;
     });
-    return next ? this.sessions.findIndex(s => s.id === next.dataset.sessionId) : this.sessions.length;
+    return next ? this.sessions.findIndex(s => s.id === next.dataset.sessionId) : visible.length ? this.sessions.findIndex(s => s.id === visible.at(-1)!.dataset.sessionId) + 1 : this.sessions.length;
   }
 
   private dragTabOver(e: DragEvent) {
@@ -936,9 +1080,12 @@ export class App {
     this.clearTabDrop();
     const group = (e.target as Element).closest<HTMLElement>('.tab-group');
     if (group) group.classList.add('drop-target');
-    const slot = this.tabDropIndex(e.clientX);
-    const target = this.sessions[Math.min(slot, this.sessions.length - 1)];
-    this.tabsEl.querySelector(`[data-session-id="${target?.id}"]`)?.classList.add(slot === this.sessions.length ? 'drop-after' : 'drop-before');
+    const tabs = e.currentTarget as HTMLElement;
+    const slot = this.tabDropIndex(e.clientX, tabs);
+    const target = this.sessions[slot];
+    const next = tabs.querySelector(`[data-session-id="${target?.id}"]`);
+    if (next) next.classList.add('drop-before');
+    else [...tabs.querySelectorAll('.doc-tab')].filter(tab => tab.getBoundingClientRect().width > 0).at(-1)?.classList.add('drop-after');
   }
 
   private dropTab(e: DragEvent) {
@@ -946,10 +1093,14 @@ export class App {
     if (!source) return;
     e.preventDefault();
     e.stopPropagation();
-    const from = this.sessions.indexOf(source), slot = this.tabDropIndex(e.clientX);
+    const tabs = e.currentTarget as HTMLElement;
+    const from = this.sessions.indexOf(source), slot = this.tabDropIndex(e.clientX, tabs);
+    const pane = Number(tabs.closest<HTMLElement>('.pane-tabbar')?.dataset.pane ?? 0);
+    const crossed = pane !== (this.paneOf.get(source) ?? 0);
     this.draggedTab = null;
     this.clearTabDrop();
-    const group = (e.target as Element).closest<HTMLElement>('.tab-group')?.dataset.collectionId ?? null;
+    const group = (e.target as Element).closest<HTMLElement>('.tab-group')?.dataset.collectionId ?? (crossed ? source.collectionId : null);
+    if (crossed) this.moveSessionToPane(source, pane);
     if ((source.collectionId ?? null) !== group) {
       void this.moveToCollection(source, group).then(moved => { if (moved) this.moveTab(source, slot - (from < slot ? 1 : 0)); }).catch(err => reportError('Moving tab', err));
       return;
@@ -962,7 +1113,8 @@ export class App {
     if (from < 0) return;
     const to = Math.max(0, Math.min(this.sessions.length - 1, index));
     if (from === to) return;
-    const focused = this.tabsEl.contains(document.activeElement);
+    const tabs = this.panes[this.paneOf.get(session) ?? 0].tabs;
+    const focused = tabs.contains(document.activeElement);
     this.sessions.splice(from, 1);
     this.sessions.splice(to, 0, session);
     this.keepCollectionTabsTogether();
@@ -970,7 +1122,7 @@ export class App {
     void this.rememberOpenTabs().then(() => { if (this.showingHome) void this.home.draw(); });
     this.drawTabs();
     if (focused) {
-      const moved = this.tabsEl.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(session.id)}"]`);
+      const moved = tabs.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(session.id)}"]`);
       moved?.focus({ preventScroll: true });
       moved?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
@@ -1044,13 +1196,14 @@ export class App {
   }
 
   private collectionMenu(e: MouseEvent, group: Collection) {
+    const pane = this.activePane;
     showMenu(e.clientX, e.clientY, [
       { label: group.collapsed ? 'Expand group' : 'Collapse group', icon: group.collapsed ? 'chevRight' : 'chevDown', run: () => {
         group.collapsed = !group.collapsed; void updateCollection(group); this.drawTabs();
       } },
       { label: 'Rename or colour…', icon: 'edit', run: () => this.home.editCollection(group) },
       { label: 'Close group', icon: 'close', run: async () => {
-        for (const s of this.sessions.filter(s => s.collectionId === group.id)) {
+        for (const s of this.sessions.filter(s => s.collectionId === group.id && (this.paneOf.get(s) ?? 0) === pane)) {
           await this.closeSession(s);
           if (this.sessions.includes(s)) break;
         }
@@ -1064,15 +1217,22 @@ export class App {
     return this.orderWrites;
   }
 
-  private refresh() {
+  private refresh(redrawTabs = true) {
     const s = this.session;
-    if (!s) this.showingHome = false;
-    this.startEl.hidden = !!s && !this.showingHome;
+    if (!s && !this.splitView) this.showingHome = false;
+    this.startEl.hidden = this.splitView ? !this.showingHome : !!s && !this.showingHome;
+    this.pageControls.hidden = !s; this.zoomControls.hidden = !s;
     // Home fills the whole area, so the side lists step aside while it shows.
     this.panels.host.classList.toggle('behind-home', !this.startEl.hidden);
-    this.homeBtn.classList.toggle('active', !this.startEl.hidden);
+    for (const [index, pane] of this.panes.entries()) {
+      pane.header.classList.toggle('active', index === this.activePane);
+      pane.el.classList.toggle('active', index === this.activePane);
+      pane.header.querySelector('.tab-home')?.classList.toggle('active', index === this.activePane && !this.startEl.hidden);
+      pane.empty.hidden = !!pane.session || (index === this.activePane && !this.startEl.hidden);
+      if (index !== this.activePane) pane.viewer.scroller.style.visibility = pane.session ? 'visible' : 'hidden';
+    }
     this.viewer.scroller.style.visibility = s ? 'visible' : 'hidden';
-    this.drawTabs();
+    if (redrawTabs) this.drawTabs();
     this.syncRibbon();
     this.pageInput.value = s ? String(this.viewer.current + 1) : '';
     this.pageTotal.textContent = s ? String(s.pages.length) : '–';
@@ -1093,10 +1253,11 @@ export class App {
       : m ? `Meletiq PDF is using ${mb} MB of memory.` : '';
   }
 
-  add(session: Session) {
+  add(session: Session, paneIndex = this.activePane) {
     this.showingHome = false;
     session.tabOrder = this.nextTabOrder = Math.max(Date.now(), this.nextTabOrder + 1);
     this.sessions.push(session);
+    this.paneOf.set(session, this.splitView ? paneIndex : 0);
     this.sortOpenedTabs();
     this.listen(session);
     this.activate(session);
@@ -1113,7 +1274,7 @@ export class App {
         }
         this.refresh();
         this.imageBar.sync();
-      }
+      } else this.drawTabs();
       this.scheduleJournal(session);
     }));
   }
@@ -1128,6 +1289,7 @@ export class App {
   }
 
   activate(session: Session | null) {
+    if (session && this.splitView) this.focusPane(this.paneOf.get(session) ?? 0);
     const group = session?.collectionId ? this.tabGroups.get(session.collectionId) : undefined;
     if (group?.collapsed) {
       group.collapsed = false; void updateCollection(group);
@@ -1141,6 +1303,7 @@ export class App {
     closeDictionary();
     closeVoicePlayer();
     this.session = session;
+    this.panes[this.activePane].session = session;
     this.viewer.attach(session);
     this.panels.attach(session);
     this.pageEditor.attach();
@@ -1169,12 +1332,17 @@ export class App {
     return closing;
   }
 
+  private async settleSession(session: Session) {
+    const pane = this.panes[this.paneOf.get(session) ?? 0];
+    if (pane.session === session) await pane.tools.settle();
+  }
+
   private async closeSessionOnce(session: Session) {
-    if (this.session === session) await this.tools.settle();
+    await this.settleSession(session);
     await this.styleChanges;
     await this.saves.get(session)?.promise;
     if (!this.sessions.includes(session)) return;
-    if (this.session === session) await this.tools.settle();
+    await this.settleSession(session);
     if (session.dirty) {
       this.activate(session);
       const choice = await openDialog<'save' | 'discard' | 'cancel'>('Unsaved changes', h('p', null, `Save your changes to "${session.name}" before closing?`),
@@ -1182,7 +1350,7 @@ export class App {
       if (choice === 'cancel') return;
       if (choice === 'save') {
         const ok = await this.saveSession(session);
-        if (this.session === session) await this.tools.settle();
+        await this.settleSession(session);
         if (!ok || session.dirty) return;
       }
     }
@@ -1195,10 +1363,16 @@ export class App {
     }
     const i = this.sessions.indexOf(session);
     if (i < 0) return;
+    const paneIndex = this.paneOf.get(session) ?? 0, pane = this.panes[paneIndex];
+    const paneSlot = this.sessions.filter(s => (this.paneOf.get(s) ?? 0) === paneIndex).indexOf(session);
     this.sessions.splice(i, 1);
     this.unlisten(session);
-    const next = this.sessions[Math.min(i, this.sessions.length - 1)] ?? null;
-    if (this.session === session) this.activate(next);
+    const remaining = this.sessions.filter(s => (this.paneOf.get(s) ?? 0) === paneIndex);
+    const next = remaining[Math.min(paneSlot, remaining.length - 1)] ?? null;
+    if (pane.session === session) {
+      if (paneIndex === this.activePane) this.activate(next);
+      else { pane.session = next; pane.viewer.attach(next); pane.imageBar.sync(); }
+    }
     await session.close();
     this.refresh();
   }
@@ -1216,6 +1390,7 @@ export class App {
   // ---- Opening ----
 
   async openDialog() {
+    const paneIndex = this.activePane;
     if (window.showOpenFilePicker) {
       let handles: FileSystemFileHandle[];
       try {
@@ -1227,14 +1402,14 @@ export class App {
         if ((err as Error).name === 'AbortError') return;
         throw err;
       }
-      for (const handle of handles.sort((a, b) => byName.compare(a.name, b.name))) await this.openHandle(handle);
+      for (const handle of handles.sort((a, b) => byName.compare(a.name, b.name))) await this.openHandle(handle, undefined, paneIndex);
       return;
     }
     const files = await pickFiles('.pdf,image/*', true);
-    for (const f of files.sort((a, b) => byName.compare(a.name, b.name))) await this.openFile(f);
+    for (const f of files.sort((a, b) => byName.compare(a.name, b.name))) await this.openFile(f, null, paneIndex);
   }
 
-  async openHandle(handle: FileSystemFileHandle, page?: number) {
+  async openHandle(handle: FileSystemFileHandle, page?: number, paneIndex = this.activePane) {
     const allowed = await readableHandle(handle);
     if (!allowed) { toast(`File access was not granted for “${handle.name}”.`, 'info'); return; }
     handle = allowed;
@@ -1243,11 +1418,11 @@ export class App {
     catch { toast(`"${handle.name}" could not be read. It may have moved.`, 'error'); return; }
     rememberHandle(file, handle);
     this.hideHome();
-    await this.openFile(file, handle);
+    await this.openFile(file, handle, paneIndex);
     if (page !== undefined && this.session?.handle && this.session.name === handle.name && page < this.session.pages.length) this.viewer.goTo(page);
   }
 
-  async openFile(file: File, handle: FileSystemFileHandle | null = null) {
+  async openFile(file: File, handle: FileSystemFileHandle | null = null, paneIndex = this.activePane) {
     if (/\.(docx|xlsx|pptx)$/i.test(file.name)) {
       await this.openOffice(file);
       return;
@@ -1256,10 +1431,10 @@ export class App {
       await this.pasteImages([file], file.name);
       return;
     }
-    await this.openPdfBlob(file, file.name, handle);
+    await this.openPdfBlob(file, file.name, handle, paneIndex);
   }
 
-  async openPdfBlob(blob: Blob, name: string, handle: FileSystemFileHandle | null = null): Promise<Session | null> {
+  async openPdfBlob(blob: Blob, name: string, handle: FileSystemFileHandle | null = null, paneIndex = this.activePane): Promise<Session | null> {
     if (handle) {
       for (const existing of this.sessions) {
         if (!existing.handle) continue;
@@ -1281,7 +1456,7 @@ export class App {
       this.setStatus('');
     }
     await this.importBookmarks(session);
-    this.add(session);
+    this.add(session, paneIndex);
     if (handle) await this.collectionsChanged();
     if (handle) {
       void addRecent(name, handle, session.pages.length);
@@ -1349,6 +1524,7 @@ export class App {
     const dt = e.dataTransfer;
     if (!dt || ![...dt.types].includes('Files')) return;
     e.preventDefault();
+    const paneIndex = Number((e.target as Element)?.closest?.('.document-pane')?.getAttribute('data-pane') ?? this.activePane);
     const items = [...dt.items].filter(i => i.kind === 'file');
     // Read handles right away. The browser clears drag data once the event ends.
     const handles = items.map(i => i.getAsFileSystemHandle?.() ?? Promise.resolve(null));
@@ -1360,8 +1536,8 @@ export class App {
       if (handle?.kind === 'file') {
         // Only the dropped file itself can tell the Windows app where it is; the handle's file cannot.
         void locateFile(file);
-        await this.openHandle(handle as FileSystemFileHandle);
-      } else await this.openFile(file);
+        await this.openHandle(handle as FileSystemFileHandle, undefined, paneIndex);
+      } else await this.openFile(file, null, paneIndex);
     }
   }
 
@@ -1610,7 +1786,7 @@ export class App {
 
     // Ctrl+1 to 9 jumps to that document, as in Xodo.
     if (ctrl && !e.shiftKey && !e.altKey && /^(Digit|Numpad)[1-9]$/.test(e.code)) {
-      const s = this.sessions[+e.code.slice(-1) - 1];
+      const s = this.sessions.filter(s => (this.paneOf.get(s) ?? 0) === this.activePane)[+e.code.slice(-1) - 1];
       if (s) { e.preventDefault(); this.activate(s); }
       return;
     }
@@ -1707,9 +1883,12 @@ export class App {
     };
     switch (id) {
       case 'next-tab': case 'prev-tab':
-        if (this.sessions.length > 1) {
-          const i = this.sessions.indexOf(this.session!);
-          this.activate(this.sessions[(i + (id === 'prev-tab' ? -1 : 1) + this.sessions.length) % this.sessions.length]);
+        {
+          const tabs = this.sessions.filter(s => (this.paneOf.get(s) ?? 0) === this.activePane);
+          if (tabs.length > 1) {
+            const i = tabs.indexOf(this.session!);
+            this.activate(tabs[(i + (id === 'prev-tab' ? -1 : 1) + tabs.length) % tabs.length]);
+          }
         }
         return;
       case 'first-page': if (s) this.viewer.goTo(0); return;
@@ -1915,7 +2094,7 @@ export class App {
   }
 
   private async saveOnce(session: Session, saveAs: boolean): Promise<boolean> {
-    if (this.session === session) await this.tools.settle();
+    await this.settleSession(session);
     await this.styleChanges;
     // A form answer still being typed counts: leaving the box hands it to the document.
     const typingIn = document.activeElement as HTMLElement | null;
@@ -2195,7 +2374,6 @@ export class App {
 
   /** The image selected when Crop was pressed is the one to crop. */
   private cropTarget: { pageId: string; annotId: string } | null = null;
-  private pageTimer = 0;
 
   private async doCropImage(v: PageView, box: { x0: number; y0: number; x1: number; y1: number }) {
     const s = this.session;
@@ -2989,23 +3167,25 @@ export class App {
 
   /** Draws the Home screen when it is showing. */
   private async drawStart() {
-    if (this.session && !this.showingHome) return;
+    if (this.startEl.hidden) return;
     await this.home.draw();
   }
 
-  toggleHome() { if (this.showingHome) this.hideHome(); else if (this.session) { this.showingHome = true; this.refresh(); void this.drawStart(); } }
+  toggleHome() { if (this.showingHome) this.hideHome(); else { this.showingHome = true; this.refresh(); void this.drawStart(); } }
 
   hideHome() { if (this.showingHome) { this.showingHome = false; this.refresh(); } }
 
   /** Right-click on a document tab. */
   private tabMenu(e: MouseEvent, s: Session) {
+    const siblings = this.sessions.filter(item => (this.paneOf.get(item) ?? 0) === (this.paneOf.get(s) ?? 0));
     showMenu(e.clientX, e.clientY, [
+      { label: this.splitView ? 'Move to other pane' : 'Open beside', icon: 'compareHold', run: () => this.moveSessionToPane(s, (this.paneOf.get(s) ?? 0) === 0 ? 1 : 0) },
       { label: 'Reload from disk', icon: 'rotR', run: () => this.reloadFromDisk(s) },
       { label: 'Copy file path', icon: 'copy', run: () => this.copyFilePath(s) },
       { label: 'Add to collection…', icon: 'folder', run: () => this.addToCollection(s) },
       s.collectionId ? { label: 'Remove from group', icon: 'folder', run: () => this.moveToCollection(s, null) } : null,
       { label: 'Close', icon: 'close', key: keyLabel('close-tab'), run: () => this.closeSession(s) },
-      this.sessions.length > 1 ? { label: 'Close the others', icon: 'close', run: async () => { for (const o of [...this.sessions]) if (o !== s) await this.closeSession(o); } } : null,
+      siblings.length > 1 ? { label: 'Close the others', icon: 'close', run: async () => { for (const o of siblings) if (o !== s) await this.closeSession(o); } } : null,
     ].filter(Boolean) as MenuItem[]);
   }
 
@@ -3052,10 +3232,10 @@ export class App {
   }
 
   private async reloadOnce(s: Session) {
-    if (this.session === s) await this.tools.settle();
+    await this.settleSession(s);
     await this.styleChanges;
     await this.saves.get(s)?.promise;
-    if (this.session === s) await this.tools.settle();
+    await this.settleSession(s);
     if (!this.sessions.includes(s) || this.closing.has(s)) return;
     const originalHandle = s.handle, originalName = s.name;
     let handle = s.handle ?? s.reloadHandle;
@@ -3088,7 +3268,7 @@ export class App {
     } finally {
       this.setStatus('');
     }
-    if (this.session === s) await this.tools.settle();
+    await this.settleSession(s);
     await this.styleChanges;
     let sameFile = false;
     try {
@@ -3107,6 +3287,8 @@ export class App {
     fresh.reloadHandle = originalHandle ? null : handle;
     fresh.tabOrder = s.tabOrder;
     fresh.collectionId = s.collectionId;
+    const paneIndex = this.paneOf.get(s) ?? 0;
+    this.paneOf.set(fresh, paneIndex);
     this.sessions[i] = fresh;
     this.unlisten(s);
     this.listen(fresh);
@@ -3114,7 +3296,11 @@ export class App {
       const page = this.viewer.current;
       this.activate(fresh);
       this.viewer.goTo(Math.min(page, fresh.pages.length - 1));
-    } else this.drawTabs();
+    } else {
+      const pane = this.panes[paneIndex];
+      if (pane.session === s) { const page = pane.viewer.current; pane.session = fresh; pane.viewer.attach(fresh); pane.viewer.goTo(Math.min(page, fresh.pages.length - 1)); }
+      this.drawTabs();
+    }
     await s.close();
     void addRecent(fresh.name, handle, fresh.pages.length);
     toast(`Reloaded ${fresh.name}.`, 'ok');
@@ -3135,6 +3321,7 @@ export class App {
   /** Open a library selection A–Z; failures stay available for retry. */
   async openLibraryFiles(files: HomeFile[]): Promise<string[]> {
     if (!files.length) return [];
+    const paneIndex = this.activePane;
     await this.orderWrites;
     const entries = [...files].sort((a, b) => byName.compare(a.name, b.name));
     const collection = entries[0]?.collection;
@@ -3169,10 +3356,10 @@ export class App {
         const found = entry.handle ? { file: await entry.handle.getFile(), handle: entry.handle } : located.get(entry.name);
         if (!found) { failed.push(entry.name); continue; }
         let session: Session | null | undefined;
-        if (entry.closed) session = await this.reopenClosedFile(entry.closed, found);
+        if (entry.closed) session = await this.reopenClosedFile(entry.closed, found, paneIndex);
         else {
           if (found.handle) rememberHandle(found.file, found.handle);
-          session = await this.openPdfBlob(found.file, found.file.name, found.handle);
+          session = await this.openPdfBlob(found.file, found.file.name, found.handle, paneIndex);
         }
         if (session) { ids.push(entry.id); if (!opened.includes(session)) opened.push(session); }
         else failed.push(entry.name);
@@ -3194,13 +3381,14 @@ export class App {
 
   /** Opens the document closed most recently, at the page it was on. */
   async reopenClosed() {
+    const paneIndex = this.activePane;
     const [last] = await listClosed();
     if (!last) { toast('No recently closed documents.', 'info'); return; }
-    await this.reopenClosedFile(last);
+    await this.reopenClosedFile(last, undefined, paneIndex);
   }
 
   /** A closed entry stays in the list until its document has actually opened. */
-  async reopenClosedFile(last: ClosedFile, located?: { file: File; handle: FileSystemFileHandle | null }) {
+  async reopenClosedFile(last: ClosedFile, located?: { file: File; handle: FileSystemFileHandle | null }, paneIndex = this.activePane) {
     let handle = last.handle;
     let file: File;
     if (located) { file = located.file; handle = located.handle; }
@@ -3229,7 +3417,7 @@ export class App {
     }
     if (handle) rememberHandle(file, handle);
     this.hideHome();
-    const opened = await this.openPdfBlob(file, last.name, handle);
+    const opened = await this.openPdfBlob(file, last.name, handle, paneIndex);
     if (!opened) return;
     this.viewer.goTo(Math.min(last.page, opened.pages.length - 1));
     await removeClosed(last.id);

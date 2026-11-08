@@ -104,6 +104,15 @@ try {
   const dropped = await tabs(page);
   check('Dropped files merge into the same A–Z tab order', JSON.stringify(dropped) === JSON.stringify(['a.pdf', 'alpha.pdf', 'b.pdf', 'Doc 9.pdf', 'Doc 10.pdf', 'Part 2.pdf', 'Part 10.pdf', 'zeta.pdf']), dropped.join(', '));
 
+  // Two panes also work in the real WebView2 host, with independent selected pages.
+  await page.eval(`window.__pdfy.toggleSplitView(); 1`);
+  check('Side by side renders both PDFs in the Windows app', await until(page, `window.__pdfy.panes.length === 2 && window.__pdfy.panes.every(p => [...p.viewer.views.values()].some(v => v.canvas?.width > 0))`));
+  await page.eval(`(() => { const a=window.__pdfy; a.panes[0].viewer.setScale(1.2); a.panes[0].viewer.goTo(2); a.focusPane(1); a.viewer.setScale(1.4); a.viewer.goTo(5); })(); 1`);
+  await wait(300);
+  check('Windows pane controls keep pages and zoom independent', await page.eval(`window.__pdfy.panes[0].viewer.current === 2 && window.__pdfy.panes[0].viewer.scale === 1.2 && window.__pdfy.panes[1].viewer.current === 5 && window.__pdfy.panes[1].viewer.scale === 1.4 && document.querySelector('[aria-label="Page number"]').value === '6'`));
+  await page.eval(`window.__pdfy.toggleSplitView(); 1`);
+  check('Merging Windows panes keeps all document tabs', await page.eval(`!window.__pdfy.splitView && window.__pdfy.sessions.length === 8 && window.__pdfy.panes[1].el.hidden`));
+
   // 5. Minimise: the window must not slide sideways first.
   const hwnd = ps(`(Get-Process -Id ${main.pid}).MainWindowHandle`);
   const sampler = join(work, 'sample.ps1');
