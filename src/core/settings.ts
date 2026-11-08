@@ -49,7 +49,7 @@ export interface PenSettings {
 export const DEFAULT_PEN: PenSettings = { drawWith: 'any', cursor: 'dot', smoothing: 'light', sideButton: 'eraser', tailErases: true, autoInk: false };
 
 const DEFAULTS: Settings = {
-  author: 'PDFy user', reopenAtLastPage: true, lookup: false, mdTheme: 'obsidian-light', ocrLang: 'eng', prefSet: '', onlineDict: true, dictTab: 'cambridge', dictDocked: false,
+  author: 'Meletiq PDF user', reopenAtLastPage: true, lookup: false, mdTheme: 'obsidian-light', ocrLang: 'eng', prefSet: '', onlineDict: true, dictTab: 'cambridge', dictDocked: false,
   pagesView: 'editor', editorThumb: 200, pen: DEFAULT_PEN, wheelZooms: false, guideSeen: '',
 };
 

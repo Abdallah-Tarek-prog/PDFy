@@ -1,7 +1,7 @@
 // Crash recovery. Edits are written to a small local database a few seconds after each change.
 // If the app closes unexpectedly, the next start offers them back.
 
-import type { Annot, Bookmark, ImageAsset, PageRef } from '../core/model';
+import type { Annot, Bookmark, BuildOptions, ImageAsset, PageRef } from '../core/model';
 import type { Session } from '../core/session';
 
 const DB = 'pdfy-recovery';
@@ -44,6 +44,10 @@ export interface Journal {
   pages: StoredPage[];
   bookmarks: Bookmark[];
   assetIds: string[];
+  ocrWords?: [string, { x: number; y: number; w: number; h: number; text: string }[]][];
+  attachments?: { name: string; asset: string }[];
+  /** Passwords apply to immediate exports and are never written to the journal. */
+  pendingOptions?: Omit<BuildOptions, 'encrypt'>;
 }
 
 const handles = new WeakMap<Blob, FileSystemFileHandle>();
@@ -51,16 +55,34 @@ export const rememberHandle = (blob: Blob, h: FileSystemFileHandle) => handles.s
 
 const tx = <T,>(req: IDBRequest<T>) => new Promise<T>((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
 
+/** Runs within the journal write, so concurrent writers cannot lose newly referenced blobs. */
+function pruneAssets(t: IDBTransaction): Set<string> {
+  const removed = new Set<string>();
+  const journals = t.objectStore(JOURNAL).getAll();
+  journals.onsuccess = () => {
+    const keep = new Set((journals.result as Journal[]).flatMap(j => j.assetIds));
+    const assets = t.objectStore(ASSETS);
+    const keys = assets.getAllKeys();
+    keys.onsuccess = () => {
+      for (const key of keys.result) if (typeof key === 'string' && !keep.has(key)) {
+        assets.delete(key);
+        removed.add(key);
+      }
+    };
+  };
+  return removed;
+}
+
 /** Writes a session to the journal. Images are stored once, however often this runs. */
 export async function saveJournal(session: Session): Promise<void> {
   const db = await openDb();
   try {
     const assetIds = new Set<string>();
-    const pending: [string, Blob][] = [];
+    const blobs = new Map<string, Blob>();
     const storeBlob = (b: Blob) => {
       const id = blobId(b);
       assetIds.add(id);
-      if (!written.has(id)) pending.push([id, b]);
+      blobs.set(id, b);
       return id;
     };
     const sources: Journal['sources'] = [];
@@ -81,17 +103,28 @@ export async function saveJournal(session: Session): Promise<void> {
       }),
       ghostsLoaded: false,
     }));
-    if (pending.length) {
-      const t = db.transaction(ASSETS, 'readwrite');
-      for (const [id, b] of pending) t.objectStore(ASSETS).put(b, id);
-      await new Promise<void>((res, rej) => { t.oncomplete = () => res(); t.onerror = () => rej(t.error); });
-      for (const [id] of pending) written.add(id);
-    }
+    const attachments = session.attachments.map(a => ({ name: a.name, asset: storeBlob(a.blob) }));
+    const { encrypt: _encrypt, ...pendingOptions } = session.pendingOptions;
     const record: Journal = {
       id: session.id, name: session.name, when: Date.now(), handle: session.handle, sources, pages,
       bookmarks: session.bookmarks, assetIds: [...assetIds],
+      ocrWords: [...session.ocrWords], attachments, pendingOptions,
     };
-    await tx(db.transaction(JOURNAL, 'readwrite').objectStore(JOURNAL).put(record));
+    const t = db.transaction([JOURNAL, ASSETS], 'readwrite');
+    const assets = t.objectStore(ASSETS);
+    for (const [id, blob] of blobs) {
+      if (!written.has(id)) assets.put(blob, id);
+      else {
+        // Another transaction may have dropped the old journal since this save began.
+        const existing = assets.getKey(id);
+        existing.onsuccess = () => { if (existing.result === undefined) assets.put(blob, id); };
+      }
+    }
+    t.objectStore(JOURNAL).put(record);
+    const removed = pruneAssets(t);
+    await new Promise<void>((res, rej) => { t.oncomplete = () => res(); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+    for (const id of assetIds) written.add(id);
+    for (const id of removed) written.delete(id);
   } finally {
     db.close();
   }
@@ -131,13 +164,11 @@ export async function dropJournal(id: string): Promise<void> {
   try {
     const db = await openDb();
     try {
-      const all = await tx<Journal[]>(db.transaction(JOURNAL).objectStore(JOURNAL).getAll());
-      const me = all.find(j => j.id === id);
-      const keep = new Set(all.filter(j => j.id !== id).flatMap(j => j.assetIds));
       const t = db.transaction([JOURNAL, ASSETS], 'readwrite');
       t.objectStore(JOURNAL).delete(id);
-      for (const a of me?.assetIds ?? []) if (!keep.has(a)) { t.objectStore(ASSETS).delete(a); written.delete(a); }
-      await new Promise<void>((res, rej) => { t.oncomplete = () => res(); t.onerror = () => rej(t.error); });
+      const removed = pruneAssets(t);
+      await new Promise<void>((res, rej) => { t.oncomplete = () => res(); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+      for (const a of removed) written.delete(a);
     } finally {
       db.close();
     }

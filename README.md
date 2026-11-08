@@ -1,4 +1,4 @@
-# PDFy
+# Meletiq PDF
 
 A PDF editor for Windows. Everything Xodo does is the goal, plus pasting images and converting
 their theme between light and dark, and study tools: a dictionary with Arabic, equations, and
@@ -16,13 +16,17 @@ and collections), and the + opens a file or creates a document. Settings (under 
 Pen and tablet, Pages and moving around, Study tools, Quick setups, and General and help. A feature
 guide opens on the first start and once after each update.
 
+Each document tab keeps its page, scroll position, zoom and layout when you switch away and return.
+Collections appear as coloured, collapsible tab groups. Right-click a group to rename it, change its
+colour or close its open tabs; drag a document into a group to add it.
+
 ## Run it
 
 Double-click `app/PDFy.exe`. To open a file directly, use "Open with" in Explorer and pick that exe.
 
 Needs the .NET 10 Desktop Runtime and the WebView2 runtime. Windows 11 already has WebView2.
 
-To add PDFy to the Start menu and to "Open with" for PDF files, for your Windows user only:
+To add Meletiq PDF to the Start menu and to "Open with" for PDF files, for your Windows user only:
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/install.ps1
@@ -35,6 +39,8 @@ powershell -ExecutionPolicy Bypass -File scripts/install.ps1
 | Part | Job | Where |
 |---|---|---|
 | Windows window | Native window, opens files, restarts the engine after a crash | `host/` |
+| One window | A second launch hands its files to the open window and quits | `host/SingleInstance.cs` |
+| Crash log | Every kind of failure, with memory at the time, in `%LOCALAPPDATA%\PDFy\pdfy.log` | `host/CrashLog.cs` |
 | Page drawing | pdf.js, reads files in pieces on demand | `src/core/engine.ts`, `src/view/viewer.ts` |
 | Saving | pdf-lib, in a background worker that stops when idle | `src/workers/edit.worker.ts` |
 | Theme conversion | Our own engine, in a background worker | `src/theme/engine.ts` |
@@ -102,6 +108,7 @@ npm test
 | `node tests/browser-run.mjs --visual` | Screenshots of each screen and every theme, into `tests/output/shots` |
 | `node scripts/check-themes.mjs` | Readability contrast of every theme |
 | `node tests/host-test.mjs` | The real `PDFy.exe`, including a forced crash |
+| `node tests/instance-test.mjs` | One window, A–Z order, crash log and minimise in the real exe. Runs beside an open PDFy. `PDFY_EXE=<path>` tests another build (also for the two tests above) |
 | `node tests/clipboard-test.mjs` | Real Ctrl+V in the real exe. Briefly uses your clipboard, then restores it |
 | `node tests/real-web-test.mjs` | Theme conversion scored against real websites |
 | `node tests/bigfile-test.mjs` | Real memory on a 144 MB file, which is deleted afterwards |

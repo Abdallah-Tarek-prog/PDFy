@@ -17,7 +17,7 @@ const page = (...kids: (Node | null)[]) => el('ga-page', ...kids);
 
 const SLIDES: Slide[] = [
   {
-    id: 'welcome', title: 'Welcome to PDFy', lead: 'A PDF editor for studying and note-taking. Here is what makes it different, in about two minutes.',
+    id: 'welcome', title: 'Welcome to Meletiq PDF', lead: 'A PDF editor for studying and note-taking. Here is what makes it different, in about two minutes.',
     points: ['Read, annotate and organise PDFs, with familiar keyboard shortcuts.', 'Paste screenshots and turn them light or dark to match your notes.', 'Markdown notes, equations, a dictionary with Arabic, and reading words from pictures.'],
     art: () => el('ga-art ga-welcome', el('ga-logo', icon('contrast', 46)), el('ga-chips', ...['Paste', 'Themes', 'Notes', 'Equations', 'Dictionary', 'Pen'].map(t => h('span', { class: 'ga-chip' }, t)))),
   },
@@ -126,7 +126,7 @@ export function showGuide(startAt = 0): Promise<void> {
           s.keys ? el('guide-keys', ...s.keys.map(k => h('span', { class: 'guide-key' }, ...k.split('+').flatMap((part, j) => [j ? '+' : null, h('kbd', null, part)]).filter(Boolean) as Node[]))) : null)));
       dots.querySelectorAll('.guide-dot').forEach((d, j) => d.classList.toggle('on', j === at));
       back.disabled = at === 0;
-      next.textContent = at === SLIDES.length - 1 ? 'Start using PDFy' : 'Next';
+      next.textContent = at === SLIDES.length - 1 ? 'Start using Meletiq PDF' : 'Next';
       next.focus();
     }
     const key = (e: KeyboardEvent) => {

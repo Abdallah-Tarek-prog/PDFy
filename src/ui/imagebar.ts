@@ -191,6 +191,6 @@ export class ImageBar {
 
   hintAfterPaste(a: Annot) {
     const an = a.image?.analysis;
-    if (an) toast(`Pasted. It looks ${an.isDark ? 'dark' : 'light'}. Use the bar above it to convert the theme.`, 'ok');
+    if (an) toast(`Pasted. It looks ${an.isDark ? 'dark' : 'light'}.`, 'ok');
   }
 }

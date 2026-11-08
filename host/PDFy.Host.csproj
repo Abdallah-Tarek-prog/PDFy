@@ -9,7 +9,9 @@
     <AssemblyName>PDFy</AssemblyName>
     <RootNamespace>PDFy</RootNamespace>
     <ApplicationIcon>pdfy.ico</ApplicationIcon>
-    <Product>PDFy</Product>
+    <Product>Meletiq PDF</Product>
+    <AssemblyTitle>Meletiq PDF</AssemblyTitle>
+    <Description>PDF editor and study workspace</Description>
     <Version>0.1.0</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

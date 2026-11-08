@@ -5,7 +5,7 @@ interface FilePickerType { description?: string; accept: Record<string, string[]
 interface Window {
   showOpenFilePicker?(o?: { multiple?: boolean; types?: FilePickerType[]; excludeAcceptAllOption?: boolean }): Promise<FileSystemFileHandle[]>;
   showSaveFilePicker?(o?: { suggestedName?: string; types?: FilePickerType[] }): Promise<FileSystemFileHandle>;
-  chrome?: { webview?: { postMessage(m: unknown): void; addEventListener(t: string, f: (e: { data: unknown; additionalObjects?: unknown[] }) => void): void } };
+  chrome?: { webview?: { postMessage(m: unknown): void; postMessageWithAdditionalObjects?(m: unknown, objects: unknown[]): void; addEventListener(t: string, f: (e: { data: unknown; additionalObjects?: unknown[] }) => void): void } };
 }
 
 interface FileSystemHandle {

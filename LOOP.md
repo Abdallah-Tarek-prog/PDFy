@@ -17,13 +17,24 @@ Read this first, continue from "Next", then update this file.
 - Fixed: I did nothing when the keyboard was left in the Thickness box.
 - Deleted 1.2 GB of old test browser profiles from Temp, 11 MB of old test output and 53 MB of .NET build scraps (host/bin, host/obj; recreated by dotnet publish when the host changes).
 - Codex (gpt-6.1-sol, extra high) reviewed everything twice. First pass: 12 findings, all fixed with a test each. Second pass confirmed 9 fully fixed and found 3 loose ends (form-wide redraw flag, radio ticks after redraw, Undo across pages), all fixed and tested; no third pass was run (moved voice note kept its sound, typed answer kept on Ctrl+S, Ctrl+Z blocked in number boxes, saved answers drawn, bookmarks survive saving, radio questions, and smaller ones).
-- Tests: engine 26, features 60, interface 30, commands 22, study 26, update 22. All pass.
+- Tests on 2026-11-06: engine 26, features 60, interface 30, commands 22, study 26, update 22. All passed then; on 2026-11-08 five of them fail (see below).
+
+## Done on 2026-11-08
+- One window: opening a PDF from Explorer while PDFy runs hands it to the open window as a new tab and brings that window forward; the second launch quits in about 0.1 s (`host/SingleInstance.cs`). The lock is per data folder, so tests with `PDFY_TEST_DATA_DIR` run beside the owner's open PDFy. This also removes the "could not start" errors (0x8007139F) in the old log, which come from two copies sharing one engine folder.
+- Several files opened together, or dropped together, open A–Z in Explorer's order ("Part 2" before "Part 10"). Files handed over by Windows now open one after another, so tab order holds.
+- Crash log (`host/CrashLog.cs`, `%LOCALAPPDATA%\PDFy\pdfy.log`): page errors (max 20 a minute, repeats counted), engine crashes with the code in words and the last memory reading, memory crossing each whole GB or the computer under 10% free, starts that fail, messages shown to the owner, sessions that did not close normally plus Windows' own crash note. The log moves to `pdfy.old.log` at 512 KB instead of being wiped. Engine crash dumps (~6.5 MB each) are kept to the newest 4.
+- Minimise now sends Windows' own minimise command after the click finishes, and the engine's memory trim waits 2 s so it does not run during the animation. The owner reported the window sliding to the right edge; this could not be reproduced on film (what was seen was the normal shrink into the taskbar icon), so it is not confirmed fixed.
+- `host-test.mjs` and `study-host-test.mjs` accept `PDFY_EXE=<path>`. New `tests/instance-test.mjs` (14 checks, real exe).
+- Tests: instance 14/14, host 22/22, study exe 17/18, features 60/60, interface 30/30, update 22/22, commands 20/22, study 23/26. The 6 failures also fail with today's changes undone or on the old exe: commands "Open: ribbon button…" (history entry could not be saved) and "Save writes to the file…" (history does not start fresh), study "Font picker", "Colour picker", "Review: Enter on a font", and study exe full screen ("not granted" when the test window is not in front).
+- Old log: engine crashes were all code 0x80000003 (the engine stopping itself on an internal check). Some may come from tests that force crashes without their own data folder. The computer had only about 2 GB of 16 GB free during today's tests.
 
 ## Next
-1. Run the two exe tests (`node tests/host-test.mjs`, `node tests/study-host-test.mjs`) with no PDFy window open. They could not run on 2026-11-06 because the owner had PDFy open.
-2. Try the pen settings with the owner's real graphics tablet, and pinch on a real touchpad: so far only simulated events were tested.
-3. Ask the owner what "the cross option and a" meant for the tablet, if the new pointer choices do not cover it.
-4. Ideas: pressure-sensitive strokes (needs a filled-outline stroke type), Xodo's "Extra window".
+1. Install the new build: `dotnet publish` to `app` and copy `dist` to `app/web`. Needs the owner's PDFy closed; never close it for them.
+2. Fix the 5 failing page tests listed above (history entries, font and colour pickers).
+3. Ask the owner whether minimise still looks wrong after installing; if so, get a screen recording.
+4. Try the pen settings with the owner's real graphics tablet, and pinch on a real touchpad: so far only simulated events were tested.
+5. Ask the owner what "the cross option and a" meant for the tablet, if the new pointer choices do not cover it.
+6. Ideas: pressure-sensitive strokes (needs a filled-outline stroke type), Xodo's "Extra window".
 
 ## Rules
 Disk: ask before anything of 200 MB or more, and report sizes. Plain-language reports. Only mark things done after a test or a check by eye. Commit as the user, with no Co-Authored-By line.

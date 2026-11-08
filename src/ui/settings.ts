@@ -302,13 +302,13 @@ function setups(app: App, redraw: () => void): HTMLElement {
 function general(app: App): HTMLElement {
   const s = getSettings();
   const author = h('input', { type: 'text', class: 'st-input', value: s.author, 'aria-label': 'Your name' });
-  author.addEventListener('change', () => saveSettings({ author: author.value.trim() || 'PDFy user' }));
+  author.addEventListener('change', () => saveSettings({ author: author.value.trim() || 'Meletiq PDF user' }));
   return h('div', { class: 'st-section' },
     setting('Your name', 'Shown on comments and markups you add.', author),
     setting('Recently closed documents', `Kept for ${CLOSED_DAYS} days on the Home screen, then forgotten. Only a link to each file is kept, never a copy.`,
       h('button', { class: 'btn small', onclick: safe(async () => { await clearClosed(); toast('The recently closed list is empty.', 'ok'); }) }, 'Clear the list')),
     h('h3', { class: 'st-sub' }, 'Help'),
-    setting('Feature guide', 'A short illustrated tour of what PDFy does that other PDF apps do not. It also opens by itself after each update.',
+    setting('Feature guide', 'A short illustrated tour of what Meletiq PDF does that other PDF apps do not. It also opens by itself after each update.',
       h('button', { class: 'btn small', onclick: () => app.showGuide() }, 'Show the guide')),
-    setting('Keyboard shortcuts', 'Xodo’s keys, plus PDFy’s own. Change any of them.', h('button', { class: 'btn small', onclick: () => app.showHelp() }, 'Show shortcuts')));
+    setting('Keyboard shortcuts', 'Xodo’s keys, plus Meletiq PDF’s own. Change any of them.', h('button', { class: 'btn small', onclick: () => app.showHelp() }, 'Show shortcuts')));
 }

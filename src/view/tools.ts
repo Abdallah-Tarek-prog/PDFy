@@ -9,7 +9,7 @@ import { getSettings } from '../core/settings';
 import type { PageView, Viewer } from './viewer';
 
 export type Tool =
-  | 'hand' | 'select' | 'highlight' | 'underline' | 'strikeout' | 'squiggly'
+  | 'hand' | 'highlight' | 'underline' | 'strikeout' | 'squiggly'
   | 'pen' | 'marker' | 'eraser' | 'text' | 'callout' | 'note' | 'stamp' | 'signature'
   | 'rect' | 'ellipse' | 'line' | 'arrow' | 'polygon' | 'polyline' | 'cloud'
   | 'distance' | 'perimeter' | 'area' | 'link' | 'whiteout' | 'redact' | 'edit-text' | 'snip' | 'crop' | 'crop-image' | 'cert-box' | 'attach'
@@ -24,6 +24,10 @@ const DRAG_LINE = new Set<Tool>(['line', 'arrow', 'distance']);
 const MULTI_CLICK = new Set<Tool>(['polygon', 'polyline', 'cloud', 'perimeter', 'area']);
 /** These stay active after use, because people usually do several in a row. */
 const STICKY = new Set<Tool>(['pen', 'marker', 'eraser', 'highlight', 'underline', 'strikeout', 'squiggly', 'redact', 'whiteout', 'edit-text']);
+/** Pan is where every other tool returns to, as in Xodo. */
+export const REST_TOOL: Tool = 'hand';
+/** Pan keeps a chosen object chosen while also allowing page text selection. */
+export const isReadingTool = (t: Tool) => t === 'hand';
 
 export const DEFAULT_STYLES: Partial<Record<Tool, Partial<ToolStyle>>> = {
   highlight: { color: '#ffd400', opacity: 0.55, width: 1 },
@@ -75,8 +79,9 @@ function loadStyles(): Record<string, ToolStyle> {
 }
 
 export class Tools {
-  tool: Tool = 'select';
+  tool: Tool = REST_TOOL;
   hooks: ToolHooks = {};
+  private panHeld = false;
   private custom = loadStyles();
   /** Thickness and opacity per tool and colour, such as the yellow marker's own width. */
   private byColour: Record<string, Record<string, { width: number; opacity: number }>> = (() => {
@@ -113,7 +118,7 @@ export class Tools {
       else if (MARKUP.has(this.tool)) safe(() => this.finishMarkup(), 'Marking text')();
     });
     window.addEventListener('pointercancel', e => { if (e.pointerId === this.pointerId) this.cancel(); });
-    window.addEventListener('blur', () => this.cancel());
+    window.addEventListener('blur', () => { this.cancel(); this.holdPan(false); });
     this.applyMode();
   }
 
@@ -146,10 +151,19 @@ export class Tools {
     this.cancel();
     this.commitEdit();
     this.tool = t;
-    if (t !== 'select') { this.viewer.select(null); this.hooks.onSelection?.(); }
+    if (!isReadingTool(t)) { this.viewer.select(null); this.hooks.onSelection?.(); }
     window.getSelection()?.removeAllRanges();
     this.applyMode();
     this.hooks.onTool?.(t);
+  }
+
+  /** Leaves a drawing tool for Pan, so a chosen object can be moved. */
+  useReadingTool() { if (!isReadingTool(this.tool)) this.setTool(REST_TOOL); }
+
+  /** Space temporarily pans even when the pointer is over page text or an object. */
+  holdPan(held: boolean) {
+    this.panHeld = held;
+    this.viewer.scroller.classList.toggle('pan-held', held);
   }
 
   /** The pointer over the page while drawing: a cross, a dot, a circle the size of the pen, an arrow or nothing. */
@@ -172,7 +186,6 @@ export class Tools {
     this.syncCursor();
     const t = this.tool;
     const mode = t === 'hand' ? 'hand'
-      : t === 'select' ? 'select'
       : MARKUP.has(t) ? 'markup'
       : t === 'edit-text' ? 'edit'
       : 'draw';
@@ -226,7 +239,7 @@ export class Tools {
     return {
       id: uid(), kind, rect: [0, 0, 0, 0], color: st.color, opacity: st.opacity, width: st.width, fill: st.fill,
       fontSize: st.fontSize, font: st.font, fontName: st.fontName, bold: st.bold, italic: st.italic,
-      author: this.hooks.author?.() ?? 'PDFy', created: Date.now(),
+      author: this.hooks.author?.() ?? 'Meletiq PDF', created: Date.now(),
     };
   }
 
@@ -236,9 +249,9 @@ export class Tools {
 
   private afterCreate(v: PageView, a: Annot) {
     if (!STICKY.has(this.tool)) {
-      this.tool = 'select';
+      this.tool = REST_TOOL;
       this.applyMode();
-      this.hooks.onTool?.('select');
+      this.hooks.onTool?.(REST_TOOL);
       this.viewer.select(v.page.id, a.id);
       this.hooks.onSelection?.();
     }
@@ -247,7 +260,7 @@ export class Tools {
   // ---- Pointer down ----
 
   /** Tools that put marks on the page, as opposed to choosing or moving. */
-  drawingTool(t: Tool = this.tool) { return !['select', 'hand', 'multiselect', 'lasso'].includes(t); }
+  drawingTool(t: Tool = this.tool) { return !['hand', 'multiselect', 'lasso'].includes(t); }
 
   /** Whether this kind of pointer should draw with the current tool, by the pen settings. */
   drawsWith(pointerType: string) {
@@ -280,34 +293,34 @@ export class Tools {
     }
     this.commitEdit();
 
+    if (this.panHeld) { this.startPan(e); return; }
+
     if (special) {
       this.noMenuUntil = performance.now() + 1500;
       if (special === 'pan') { this.startPan(e); return; }
       const sv = this.viewAt(e);
       if (!sv) return;
       if (special === 'eraser') { this.startEraser(e, sv); return; }
-      // Selecting with the side button switches to Select, so what is chosen can be moved straight away.
-      if (this.tool !== 'select') this.setTool('select');
+      // Selecting with the side button returns to Pan, so what is chosen can be moved straight away.
+      if (!isReadingTool(this.tool)) this.setTool(REST_TOOL);
       this.startMarquee(e, sv);
       return;
     }
-    if (this.tool === 'hand') { this.startPan(e); return; }
     // "Only the pen draws": the mouse moves the page instead, so a tablet pen and a mouse can share the work.
     if (!isPen && e.pointerType === 'mouse' && pen.drawWith === 'pen' && this.drawingTool() && !MARKUP.has(this.tool)) { this.startPan(e); return; }
     // The pen inks straight away in Read, while the mouse still selects.
-    if (isPen && pen.autoInk && this.tool === 'select' && !target.closest('[data-id], .sel-handle, .widgets *, .read-layer span')) {
+    if (isPen && pen.autoInk && isReadingTool(this.tool) && !target.closest('[data-id], .sel-handle, .widgets *, .read-layer span')) {
       const iv = this.viewAt(e);
       if (iv) { this.startInk(e, iv, 'pen'); return; }
     }
 
     const v = this.viewAt(e);
+    if (this.tool === 'hand') { this.downPan(e, v); return; }
     if (!v) {
-      if (this.tool === 'select') { this.viewer.select(null); this.hooks.onSelection?.(); }
       return;
     }
 
     switch (true) {
-      case this.tool === 'select': this.downSelect(e, v); return;
       case this.tool === 'multiselect': this.startMarquee(e, v); return;
       case this.tool === 'lasso': this.startLasso(e, v); return;
       case MARKUP.has(this.tool): this.downMarkup(e, v); return;
@@ -327,14 +340,47 @@ export class Tools {
     }
   }
 
+  /**
+   * Pan selects page text, selects/moves objects, and pans when a drag starts on blank space.
+   * Ctrl+drag draws a box that adds the objects inside to the selection.
+   */
+  private downPan(e: PointerEvent, v: PageView | null) {
+    const target = e.target as Element;
+    // Form fields and their controls keep working, so a form can be filled in with Pan.
+    if (target.closest('.widgets input, .widgets textarea, .widgets select, .own-fields')) return;
+    if (v && target.closest('.sel-handle, [data-id]')) {
+      window.getSelection()?.removeAllRanges();
+      this.downSelect(e, v);
+      return;
+    }
+    // Ctrl+drag adds objects. Shift+drag on blank space chooses afresh.
+    if (v && (e.ctrlKey || e.metaKey || e.shiftKey)) { this.startMarquee(e, v, e.ctrlKey || e.metaKey); return; }
+    if (this.viewer.selection) { this.viewer.select(null); this.hooks.onSelection?.(); }
+    if (target.closest('.textLayer span, .read-layer span')) return;
+    // A press on blank space or between pages ends any text selection, and its quick bar with it.
+    window.getSelection()?.removeAllRanges();
+    this.startPan(e);
+  }
+
   private startPan(e: PointerEvent) {
     const sc = this.viewer.scroller;
     const sx = e.clientX, sy = e.clientY, l = sc.scrollLeft, t = sc.scrollTop;
+    let moved = false;
     sc.classList.add('panning');
     e.preventDefault();
     this.gesture = {
-      move: m => { sc.scrollLeft = l - (m.clientX - sx); sc.scrollTop = t - (m.clientY - sy); },
-      up: () => sc.classList.remove('panning'),
+      move: m => {
+        moved ||= Math.hypot(m.clientX - sx, m.clientY - sy) > 3;
+        sc.scrollLeft = l - (m.clientX - sx); sc.scrollTop = t - (m.clientY - sy);
+      },
+      up: () => {
+        sc.classList.remove('panning');
+        // A drag that began on a link moves the page; it must not also follow the link.
+        if (!moved) return;
+        const swallow = (ev: Event) => { ev.preventDefault(); ev.stopPropagation(); };
+        window.addEventListener('click', swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+      },
       cancel: () => sc.classList.remove('panning'),
     };
   }
@@ -344,7 +390,13 @@ export class Tools {
   private downSelect(e: PointerEvent, v: PageView) {
     const target = e.target as Element;
     const handle = target.closest('.sel-handle') as SVGElement | null;
-    if (handle) { e.preventDefault(); this.startResize(e, v, handle); return; }
+    if (handle) {
+      e.preventDefault();
+      const end = handle.getAttribute('data-end');
+      if (end !== null) this.startEndDrag(e, v, +end);
+      else this.startResize(e, v, handle);
+      return;
+    }
     const node = target.closest('[data-id]') as SVGElement | null;
     if (!node) {
       if (e.shiftKey) { this.startMarquee(e, v); return; }
@@ -392,16 +444,21 @@ export class Tools {
     };
   }
 
-  /** Shift+drag on the page draws a box and selects everything inside it. */
-/** Selects these objects. After Multi-select or Lasso, the normal tool takes over so they can be moved. */
-  private chooseAll(v: PageView, found: Annot[]) {
+  /**
+   * Selects these objects. After Multi-select or Lasso, Pan takes over so they can be moved.
+   * Adding keeps what was already chosen on the same page, as Ctrl+drag does.
+   */
+  private chooseAll(v: PageView, found: Annot[], add = false) {
     if (this.tool === 'multiselect' || this.tool === 'lasso') {
-      this.tool = 'select';
+      this.tool = REST_TOOL;
       this.applyMode();
-      this.hooks.onTool?.('select');
+      this.hooks.onTool?.(REST_TOOL);
     }
+    const had = add ? this.viewer.selectedAnnots() : null;
+    const kept = had && had.page === v.page ? had.annots : [];
+    const all = [...kept, ...found.filter(a => !kept.includes(a))];
     this.viewer.select(null);
-    found.forEach((a, i) => {
+    all.forEach((a, i) => {
       if (i === 0) this.viewer.select(v.page.id, a.id);
       else this.viewer.toggleSelect(v.page.id, a.id);
     });
@@ -442,8 +499,10 @@ export class Tools {
     };
   }
 
-  private startMarquee(e: PointerEvent, v: PageView) {
+  /** Ctrl+drag in Pan draws a box and selects everything inside it. */
+  private startMarquee(e: PointerEvent, v: PageView, add = false) {
     e.preventDefault();
+    window.getSelection()?.removeAllRanges();
     const [sx, sy] = this.local(v, e);
     const node = s('rect', { class: 'rubber', x: sx, y: sy, width: 0, height: 0 });
     v.selG.append(node);
@@ -464,7 +523,7 @@ export class Tools {
           const p0 = toScreen(v.vp, b[0], b[1]), p1 = toScreen(v.vp, b[2], b[3]);
           return Math.min(p0[0], p1[0]) < x1 && Math.max(p0[0], p1[0]) > x0 && Math.min(p0[1], p1[1]) < y1 && Math.max(p0[1], p1[1]) > y0;
         });
-        this.chooseAll(v, inside);
+        this.chooseAll(v, inside, add);
       },
       cancel: () => node.remove(),
     };
@@ -543,6 +602,36 @@ export class Tools {
           if (page.annots.find(x => x.id === a.id) !== a) return;
           session.replaceAnnot(page, a, done, 'Resize');
         }).catch(err => reportError('Resizing', err)));
+      },
+      cancel: () => this.viewer.drawAnnots(v),
+    };
+  }
+
+  /** Drags one end of a line, arrow or distance. The other end stays put, and the ends may cross. */
+  private startEndDrag(e: PointerEvent, v: PageView, end: number) {
+    const sel = this.viewer.selectedAnnot();
+    if (!sel?.annot.pts || sel.annot.pts.length !== 4) return;
+    const a = sel.annot;
+    const fixed = [a.pts![2 - end * 2], a.pts![3 - end * 2]];
+    let live = a;
+    this.gesture = {
+      move: m => {
+        let p = this.pdfAt(v, m);
+        if (m.shiftKey) {
+          // Shift keeps the line straight, at 45° steps, as when drawing it.
+          const ang = Math.round(Math.atan2(p[1] - fixed[1], p[0] - fixed[0]) / (Math.PI / 4)) * (Math.PI / 4);
+          const len = Math.hypot(p[0] - fixed[0], p[1] - fixed[1]);
+          p = [fixed[0] + len * Math.cos(ang), fixed[1] + len * Math.sin(ang)];
+        }
+        const pts = end === 0 ? [p[0], p[1], fixed[0], fixed[1]] : [fixed[0], fixed[1], p[0], p[1]];
+        live = { ...this.adopt(a), pts, rect: pointsBounds(pts) };
+        // A distance shows its new length, unless its comment was written by hand.
+        if (a.kind === 'measure' && (a.contents ?? '') === measureLabel(a)) live.contents = measureLabel(live);
+        this.viewer.replaceAnnotNode(v, live);
+      },
+      up: () => {
+        if (live === a || Math.hypot(live.pts![2] - live.pts![0], live.pts![3] - live.pts![1]) * this.viewer.scale < 4) { this.viewer.drawAnnots(v); return; }
+        this.viewer.session!.replaceAnnot(v.page, a, live, 'Move line end');
       },
       cancel: () => this.viewer.drawAnnots(v),
     };
@@ -633,7 +722,7 @@ export class Tools {
     const smoothing = getSettings().pen.smoothing;
     const pts: number[] = [...this.pdfAt(v, e)];
     const start: [number, number] = [pts[0], pts[1]];
-    const node = s('path', { fill: 'none', stroke: st.color, 'stroke-width': st.width, opacity: st.opacity, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+    const node = s('path', { class: t === 'marker' ? 'highlighter' : null, fill: 'none', stroke: st.color, 'stroke-width': st.width, opacity: st.opacity, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
     v.annotsG.append(node);
     let raf = 0;
     const redraw = () => { raf = 0; node.setAttribute('d', segsToSvg(smoothPath(pts))); };
@@ -658,6 +747,7 @@ export class Tools {
         cancelAnimationFrame(raf);
         node.remove();
         const a = this.base('ink', t);
+        if (t === 'marker') a.marker = true;
         const path = simplify(smoothing === 'strong' ? average(pts) : pts, smoothing === 'off' ? 0.06 : smoothing === 'strong' ? 0.45 : 0.25);
         a.paths = [path];
         a.rect = pointsBounds(path, st.width / 2);
@@ -724,14 +814,14 @@ export class Tools {
     const t = this.tool;
 
     if (MARKUP.has(t)) { this.addMarkup(v, [this.quad(v, sx, sy, ex, ey)], ''); return; }
-    if (t === 'snip') { this.hooks.snip?.(v.page, rect); this.setTool('select'); return; }
-    if (t === 'read-picture') { this.setTool('select'); this.hooks.readPicture?.(v.page, rect); return; }
-    if (t === 'crop') { this.hooks.crop?.(v.page, rect); this.setTool('select'); return; }
-    if (t === 'cert-box') { this.setTool('select'); this.hooks.certBox?.(v.page, rect); return; }
+    if (t === 'snip') { this.hooks.snip?.(v.page, rect); this.setTool(REST_TOOL); return; }
+    if (t === 'read-picture') { this.setTool(REST_TOOL); this.hooks.readPicture?.(v.page, rect); return; }
+    if (t === 'crop') { this.hooks.crop?.(v.page, rect); this.setTool(REST_TOOL); return; }
+    if (t === 'cert-box') { this.setTool(REST_TOOL); this.hooks.certBox?.(v.page, rect); return; }
     if (t === 'crop-image') {
       const b = v.el.getBoundingClientRect();
       this.hooks.cropImage?.(v, { x0: Math.min(sx, ex), y0: Math.min(sy, ey), x1: Math.max(sx, ex), y1: Math.max(sy, ey) }, b);
-      this.setTool('select');
+      this.setTool(REST_TOOL);
       return;
     }
 
@@ -850,7 +940,7 @@ export class Tools {
 
   private dbl(e: MouseEvent) {
     if (MULTI_CLICK.has(this.tool)) { this.endClickShape(); return; }
-    if (this.tool !== 'select') return;
+    if (!isReadingTool(this.tool)) return;
     const v = this.viewAt(e);
     const node = (e.target as Element).closest('[data-id]');
     if (!v || !node) return;
@@ -958,6 +1048,7 @@ export class Tools {
   /** Places a text area over the box, at the size the text will have on the page. */
   openEditor(v: PageView, a: Annot, isNew: boolean) {
     this.commitEdit();
+    const editingSession = this.viewer.session!;
     const b = annotBounds({ ...a, pts: undefined, kind: 'text' });
     const p0 = toScreen(v.vp, b[0], b[1]), p1 = toScreen(v.vp, b[2], b[3]);
     const k = this.viewer.scale;
@@ -979,11 +1070,20 @@ export class Tools {
       ta.placeholder = '# Title\n**bold**  ==highlight==  $x^2$\n- [ ] task\n\nClick away to format.';
       ta.style.fontFamily = 'Consolas, "Cascadia Code", monospace';
       ta.style.fontSize = `${Math.max(11, 12) * k}px`;
-      ta.style.minHeight = `${Math.max(120 * k, Math.abs(p1[1] - p0[1]))}px`;
       ta.style.width = `${Math.max(240 * k, Math.abs(p1[0] - p0[0]))}px`;
     }
-    const grow = () => { ta.style.height = 'auto'; ta.style.height = `${ta.scrollHeight + 2}px`; };
-    ta.addEventListener('input', grow);
+    const minimum = Math.max(a.markdown ? 120 * k : 24, Math.abs(p1[1] - p0[1]));
+    const grow = () => {
+      const page = v.el.getBoundingClientRect(), visible = this.viewer.scroller.getBoundingClientRect();
+      const editorTop = parseFloat(ta.style.top);
+      const room = Math.max(24, Math.min(v.el.clientHeight - editorTop - 2, visible.bottom - page.top - editorTop - 8));
+      ta.style.minHeight = `${Math.min(minimum, room)}px`;
+      ta.style.maxHeight = `${room}px`;
+      ta.style.overflowY = 'auto';
+      // Keep the focused editor's height stable while measuring; collapsing it scrolls the caret's ancestors.
+      ta.style.height = `${Math.min(room, ta.scrollHeight + 2)}px`;
+    };
+    ta.addEventListener('input', () => { grow(); editingSession.markDirty(); });
     v.el.append(ta);
     grow();
     ta.focus();
@@ -992,12 +1092,14 @@ export class Tools {
       if (done) return;
       done = true;
       const text = ta.value;
+      // Measured at its natural height, so lines deleted after growing do not leave a tall box.
+      ta.style.height = 'auto';
       const hPt = (ta.scrollHeight + 4) / k;
       ta.remove();
       this.editing = null;
       if (!keep) return;
       if (!text.trim()) {
-        if (!isNew) this.viewer.session!.removeAnnot(v.page, a);
+        if (!isNew) editingSession.removeAnnot(v.page, a);
         return;
       }
       const r = a.rect;
@@ -1005,7 +1107,7 @@ export class Tools {
       const updated: Annot = { ...this.adopt(a), text, contents: text };
       if (a.markdown) {
         // Kept for the document this was typed in, even if another one is opened meanwhile.
-        const session = this.viewer.session!, page = v.page;
+        const session = editingSession, page = v.page;
         this.track((async () => {
           const fitted = await fitMarkdown(updated);
           if (isNew) {
@@ -1022,13 +1124,13 @@ export class Tools {
         return;
       }
       if (!a.angle) updated.rect = [r[0], r[3] - newH, r[2], r[3]];
-      if (isNew) { this.add(v, updated, 'Add text'); this.afterCreate(v, updated); }
-      else this.viewer.session!.replaceAnnot(v.page, a, updated, 'Edit text');
+      if (isNew) { editingSession.addAnnots(v.page, [updated], 'Add text'); if (this.viewer.session === editingSession) this.afterCreate(v, updated); }
+      else editingSession.replaceAnnot(v.page, a, updated, 'Edit text');
     };
     this.editing = { commit: () => commit(true) };
     ta.addEventListener('keydown', e => {
       e.stopPropagation();
-      if (e.key === 'Escape') commit(false);
+      if (e.key === 'Escape') { e.preventDefault(); commit(true); this.setTool(REST_TOOL); }
       if (e.key === 'Enter' && e.ctrlKey) commit(true);
     });
     ta.addEventListener('blur', () => setTimeout(() => commit(true), 0));
@@ -1036,6 +1138,7 @@ export class Tools {
 
   openCommentEditor(v: PageView, a: Annot) {
     this.commitEdit();
+    const editingSession = this.viewer.session!;
     const b = annotBounds(a);
     const p = toScreen(v.vp, b[2], b[3]);
     const q = toScreen(v.vp, b[0], b[1]);
@@ -1044,6 +1147,7 @@ export class Tools {
       style: { left: `${Math.max(p[0], q[0]) + 6}px`, top: `${Math.min(p[1], q[1])}px` },
     });
     v.el.append(ta);
+    ta.addEventListener('input', () => editingSession.markDirty());
     ta.focus();
     let done = false;
     const commit = () => {
@@ -1054,13 +1158,14 @@ export class Tools {
       this.editing = null;
       if (text !== (a.contents ?? '')) {
         const current = v.page.annots.find(x => x.id === a.id) ?? a;
-        this.viewer.session!.replaceAnnot(v.page, current, { ...this.adopt(current), contents: text }, 'Edit comment');
+        editingSession.replaceAnnot(v.page, current, { ...this.adopt(current), contents: text }, 'Edit comment');
       }
     };
     this.editing = { commit };
     ta.addEventListener('keydown', e => {
       e.stopPropagation();
-      if (e.key === 'Escape' || (e.key === 'Enter' && e.ctrlKey)) commit();
+      if (e.key === 'Escape') { e.preventDefault(); commit(); this.setTool(REST_TOOL); }
+      else if (e.key === 'Enter' && e.ctrlKey) commit();
     });
     ta.addEventListener('blur', () => setTimeout(commit, 0));
   }
@@ -1104,6 +1209,8 @@ export class Tools {
     v.el.append(ta);
     ta.focus();
     ta.select();
+    const editingSession = this.viewer.session!;
+    ta.addEventListener('input', () => editingSession.markDirty());
     let done = false;
     const original = textA.text;
     const commit = (keep = true) => {
@@ -1113,12 +1220,12 @@ export class Tools {
       ta.remove();
       this.editing = null;
       if (!keep || text === original) return;
-      this.viewer.session!.addAnnots(page, [cover, { ...textA, text, contents: text }], 'Edit page text');
+      editingSession.addAnnots(page, [cover, { ...textA, text, contents: text }], 'Edit page text');
     };
     this.editing = { commit: () => commit(true) };
     ta.addEventListener('keydown', ev => {
       ev.stopPropagation();
-      if (ev.key === 'Escape') commit(false);
+      if (ev.key === 'Escape') { ev.preventDefault(); commit(true); this.setTool(REST_TOOL); }
       if (ev.key === 'Enter') { ev.preventDefault(); commit(true); }
     });
     ta.addEventListener('blur', () => setTimeout(() => commit(true), 0));

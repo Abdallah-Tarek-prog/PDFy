@@ -200,7 +200,9 @@ internal sealed partial class MainForm
     {
         switch (action)
         {
-            case "minimize": WindowState = FormWindowState.Minimized; break;
+            // The same command Windows' own minimise button sends, after the page's click has finished,
+            // so Windows plays its normal shrink-into-the-taskbar animation.
+            case "minimize": PostMessageW(Handle, WmSysCommand, (IntPtr)ScMinimize, IntPtr.Zero); break;
             case "maximize": WindowState = FormWindowState.Maximized; break;
             case "restore": WindowState = FormWindowState.Normal; break;
             case "toggle-maximize":
@@ -253,7 +255,7 @@ internal sealed partial class MainForm
     // WM_NCCALCSIZE changes their appearance; Windows still owns Snap and animations.
     // https://learn.microsoft.com/windows/win32/dwm/customframe
     private const int WmNcCalcSize = 0x0083, WmNcHitTest = 0x0084, WmDwmCompositionChanged = 0x031e;
-    private const int WmSysCommand = 0x0112, ScKeyMenu = 0xf100;
+    private const int WmSysCommand = 0x0112, ScKeyMenu = 0xf100, ScMinimize = 0xf020;
     private const int HtTop = 12, HtTopLeft = 13, HtTopRight = 14;
     private const int SmCxSizeFrame = 32, SmCxPaddedBorder = 92;
     private const uint SwpNoSize = 0x0001, SwpNoMove = 0x0002, SwpNoZOrder = 0x0004,

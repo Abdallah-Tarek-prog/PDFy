@@ -175,7 +175,7 @@ export async function addFontFiles(files: File[]): Promise<string[]> {
       console.warn('Font file', file.name, err);
     }
   }
-  if (!names.length && failure) throw new Error('That file is not a font PDFy can read.');
+  if (!names.length && failure) throw new Error('That file is not a font Meletiq PDF can read.');
   return names;
 }
 

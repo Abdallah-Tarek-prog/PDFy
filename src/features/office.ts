@@ -550,7 +550,7 @@ export function onHostMessage(data: { type?: string; id?: number; ok?: boolean; 
 /** Asks the Windows app to print a page or web address to a PDF. */
 export function printToPdf(job: { html?: string; url?: string; widthIn: number; heightIn: number; marginIn: number }): Promise<Blob> {
   const webview = window.chrome?.webview;
-  if (!webview) return Promise.reject(new Error('This needs the PDFy desktop app.'));
+  if (!webview) return Promise.reject(new Error('This needs the Meletiq PDF desktop app.'));
   const id = nextId++;
   return new Promise<Blob>((resolve, reject) => {
     waiting.set(id, { resolve, reject });

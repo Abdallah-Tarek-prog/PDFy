@@ -126,8 +126,8 @@ h2, h3, p { margin: 0; }
 .thumb-cell { position: absolute; left: 50%; transform: translateX(-50%); width: 170px; height: 188px; display: flex; flex-direction: column; align-items: center; padding: 4px; border-radius: 7px; cursor: pointer; }
 .thumb-cell:hover { background: var(--surface-2); }
 .thumb-cell.selected { background: var(--accent-soft); }
-.thumb-holder { height: 164px; width: 100%; display: grid; place-items: center; }
-.thumb { max-width: 132px; max-height: 164px; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .3); pointer-events: none; width: auto; height: auto; }
+.thumb-holder { height: 164px; width: 100%; display: grid; place-items: end center; }
+.thumb { max-width: 132px; max-height: 100%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .3); pointer-events: none; width: auto; height: auto; }
 .thumb-cell.current .thumb { outline: 2px solid var(--accent); outline-offset: 1px; }
 .thumb-num { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .thumb-cell.current .thumb-num { color: var(--accent-text); font-weight: 600; }
@@ -167,14 +167,15 @@ mark { background: #ffe066; color: #000; border-radius: 2px; padding: 0 1px; }
 .viewer[data-mode=hand] { cursor: grab; }
 .viewer.panning { cursor: grabbing; }
 .viewer[data-mode=draw] .page, .viewer[data-mode=draw] .textLayer span { cursor: crosshair; }
-.viewer[data-mode=draw] .textLayer, .viewer[data-mode=hand] .textLayer { pointer-events: none; user-select: none; }
+.viewer[data-mode=draw] .textLayer { pointer-events: none; user-select: none; }
+.viewer.pan-held .textLayer span, .viewer.pan-held .read-layer span { cursor: grab; }
 .viewer[data-mode=draw] .widgets, .viewer[data-mode=markup] .widgets, .viewer[data-mode=edit] .widgets { pointer-events: none; }
 .viewer[data-mode=draw] .widgets *, .viewer[data-mode=markup] .widgets *, .viewer[data-mode=edit] .widgets * { pointer-events: none; }
 .viewer[data-mode=edit] .textLayer span { cursor: text; outline: 1px dashed transparent; }
 .viewer[data-mode=edit] .textLayer span:hover { outline-color: var(--accent); background: rgb(200 54 47 / .08); }
 .viewer[data-mode=edit] .textLayer { user-select: none; }
 .sizer { position: relative; min-width: 100%; }
-.page { position: absolute; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .25), 0 4px 14px rgb(0 0 0 / .12); overflow: hidden; }
+.page { position: absolute; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .25), 0 4px 14px rgb(0 0 0 / .12); overflow: hidden; isolation: isolate; }
 .page canvas.base { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .page canvas.detail { position: absolute; display: block; pointer-events: none; }
 .page.failed::after { content: "This page could not be drawn."; position: absolute; inset: 0; display: grid; place-items: center; color: #8a2b26; background: #fdf1f0; }
@@ -184,7 +185,7 @@ mark { background: #ffe066; color: #000; border-radius: 2px; padding: 0 1px; }
 .viewer[data-reading=sepia] .page { background: #f4ecd8; }
 
 /* The text layer sits over the page so text can be selected. It is invisible. */
-.textLayer { position: absolute; text-align: initial; overflow: clip; opacity: 1; line-height: 1; letter-spacing: normal; word-spacing: normal; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; caret-color: CanvasText; z-index: 1; color-scheme: only light; --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size)); }
+.textLayer { position: absolute; text-align: initial; overflow: clip; opacity: 1; line-height: 1; letter-spacing: normal; word-spacing: normal; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; caret-color: CanvasText; z-index: 0; color-scheme: only light; --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size)); }
 .textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; user-select: text; }
 .textLayer > :not(.markedContent), .textLayer .markedContent span:not(.markedContent) { z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height)); --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
 .textLayer .markedContent { display: contents; }
@@ -193,16 +194,18 @@ mark { background: #ffe066; color: #000; border-radius: 2px; padding: 0 1px; }
 .textLayer br::selection { background: transparent; }
 .textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; }
 
-.matches { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.matches { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 .match { position: absolute; background: rgb(255 212 0 / .45); border-radius: 2px; mix-blend-mode: multiply; }
 .match.current { background: rgb(255 120 0 / .6); outline: 2px solid rgb(255 120 0); }
 
-.overlay { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; overflow: visible; }
+/* Keep the SVG in the page's stacking context so highlighters can blend with its canvas. */
+.overlay { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
 .annot { pointer-events: none; }
-.annot.k-highlight path { mix-blend-mode: multiply; }
-.viewer[data-reading=night] .annot.k-highlight path { mix-blend-mode: normal; }
-.viewer[data-mode=select] .annot { pointer-events: bounding-box; cursor: move; }
-.viewer[data-mode=select] .annot.k-highlight, .viewer[data-mode=select] .annot.k-underline, .viewer[data-mode=select] .annot.k-strikeout, .viewer[data-mode=select] .annot.k-squiggly { pointer-events: visiblePainted; }
+.highlighter { mix-blend-mode: multiply; }
+.viewer[data-reading=night] .highlighter { mix-blend-mode: screen; }
+.viewer[data-mode=hand] .annot { pointer-events: bounding-box; cursor: move; }
+/* Text markup lets the page's words remain selectable with Pan. */
+.viewer[data-mode=hand] .annot:is(.k-highlight, .k-underline, .k-strikeout, .k-squiggly) { pointer-events: none; }
 .annot-text { width: 100%; height: 100%; padding: 4px; font-family: Arial, Helvetica, sans-serif; line-height: 1.2; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }
 .selection { pointer-events: none; }
 .sel-frame { fill: none; stroke: var(--accent); stroke-width: 1.25; stroke-dasharray: 4 3; }
@@ -466,7 +469,7 @@ kbd { font: 11px var(--font); padding: 0 4px; border: 1px solid var(--border); b
 .read-layer span { position: absolute; color: transparent; white-space: pre; transform-origin: 0 0; font-family: Arial, sans-serif; cursor: text; pointer-events: auto; }
 .read-layer br { position: absolute; }
 .read-layer ::selection { background: rgb(64 140 255 / .35); color: transparent; }
-.viewer:not([data-mode=select]) .read-layer, .viewer:not([data-mode=select]) .read-layer span { pointer-events: none; user-select: none; }
+.viewer:not([data-mode=hand]) .read-layer, .viewer:not([data-mode=hand]) .read-layer span { pointer-events: none; user-select: none; }
 .plain-list { margin: 8px 0 0 18px; padding: 0; }
 .plain-list li { margin: 2px 0; }
 .word-bar { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 650; display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
@@ -619,6 +622,8 @@ html.win-blur .titlebar { color: var(--chrome-muted, var(--muted)); }
 .tb-btn.active { background: var(--chrome-active, var(--accent-soft)); color: var(--accent-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent); }
 .tb-btn.active .tb-label { color: var(--chrome-text, var(--text)); font-weight: 650; }
 .tb-btn:disabled { opacity: .48; }
+/* An on/off setting such as Word lookup: a coloured icon, never the chosen-tool look. */
+.tb-btn[role=switch][aria-checked=true] svg { color: var(--accent-text); }
 .tb-sep { width: 1px; height: 26px; margin: 0 8px; background: var(--chrome-border, var(--border)); flex-shrink: 0; }
 
 .tabstrip { display: flex; align-items: center; gap: 4px; height: 38px; min-height: 38px; padding: 3px 10px; background: var(--chrome-2, var(--bg)); border-bottom: 1px solid var(--chrome-border, var(--border)); }
@@ -627,6 +632,24 @@ html.win-blur .titlebar { color: var(--chrome-muted, var(--muted)); }
 .tabstrip .doc-tab:hover { background: var(--chrome-hover, var(--surface-2)); color: var(--chrome-text, var(--text)); }
 .tabstrip .doc-tab.active { background: var(--tab-active, var(--surface)); color: var(--chrome-text, var(--text)); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 600; }
 .tabstrip .doc-tab .icon-btn { color: inherit; }
+.tabstrip .doc-tab { position: relative; user-select: none; cursor: pointer; }
+.tabstrip .doc-tab .name { user-select: none; cursor: pointer; }
+.tabstrip .doc-tab.dragging { opacity: .5; cursor: grabbing; }
+.tabstrip .doc-tab.dragging .name { cursor: grabbing; }
+.tabstrip .doc-tab.drop-before::before, .tabstrip .doc-tab.drop-after::after { content: ''; position: absolute; top: 4px; bottom: 4px; width: 2px; background: var(--accent); border-radius: 1px; pointer-events: none; }
+.tabstrip .doc-tab.drop-before::before { left: -3px; }
+.tabstrip .doc-tab.drop-after::after { right: -3px; }
+.tabstrip .tab-group { display: flex; align-items: center; flex: 0 0 auto; gap: 3px; height: 30px; padding: 0 3px; margin: 0 3px; border-bottom: 2px solid var(--group-colour); border-radius: 8px 8px 0 0; }
+.tabstrip .tab-group-toggle { display: flex; align-items: center; gap: 6px; height: 28px; max-width: 210px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; background: color-mix(in srgb, var(--group-colour) 18%, var(--chrome-bg, var(--surface))); color: var(--chrome-text, var(--text)); cursor: pointer; flex: 0 0 auto; font: inherit; font-size: 12px; font-weight: 600; }
+.tabstrip .tab-group-toggle:hover { background: color-mix(in srgb, var(--group-colour) 28%, var(--chrome-bg, var(--surface))); }
+.tabstrip .tab-group-toggle:focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; }
+.tabstrip .tab-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabstrip .tab-group-count { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .85; }
+.tabstrip .tab-group.collapsed .doc-tab { display: none; }
+.tabstrip .tab-group.has-active .tab-group-toggle { border-color: var(--group-colour); }
+.tabstrip .tab-group .doc-tab { height: 28px; }
+.tabstrip .tab-group .doc-tab.active { box-shadow: inset 0 -2px 0 var(--group-colour); }
+.tabstrip .tab-group.drop-target { background: color-mix(in srgb, var(--group-colour) 15%, transparent); }
 .tab-add { align-self: center; color: var(--chrome-muted, var(--muted)); }
 .tab-add:hover { background: var(--chrome-hover, var(--surface-2)) !important; color: var(--chrome-text, var(--text)) !important; }
 .style-bar.quiet { display: none; }
@@ -635,6 +658,12 @@ html.win-blur .titlebar { color: var(--chrome-muted, var(--muted)); }
 .dropdown { position: fixed; z-index: 880; min-width: 256px; max-width: calc(100vw - 12px); max-height: calc(100vh - 80px); overflow: auto; padding: 8px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
 .dropdown.wide { width: min(980px, calc(100vw - 12px)); }
 .dropdown.wide .dd-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 14px; }
+/* View: two columns of short groups, then the themes in rows across the menu. */
+.dropdown.grouped { width: min(600px, calc(100vw - 12px)); }
+.dropdown.grouped .dd-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 12px; }
+.dd-section.dd-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 1px 4px; margin-top: 4px; border-top: 1px solid var(--border); }
+.dd-grid .dd-title { grid-column: 1 / -1; }
+.dd-grid .dd-item { min-height: 32px; padding: 6px 10px; }
 .dd-search { width: 100%; height: 38px; margin-bottom: 8px; padding: 0 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; color: var(--text); }
 .dd-section { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 6px; }
 .dd-title { font-size: 12px; font-weight: 650; text-transform: none; letter-spacing: normal; color: var(--muted); padding: 10px 10px 5px; }
@@ -695,8 +724,8 @@ html.win-blur .titlebar { color: var(--chrome-muted, var(--muted)); }
 
 /* The style row floats at the top of the page area, like Xodo's style pop-up, so nothing shifts. */
 .stage > .style-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 35; width: max-content; max-width: calc(100% - 24px); min-height: 46px; padding: 7px 14px; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
-.status-pill.hint { bottom: 16px; color: var(--chrome-muted, var(--muted)); max-width: min(560px, calc(100% - 420px)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.status-pill:not(.hint) { bottom: 54px; }
+.status-pill { bottom: 54px; }
+.status-pill.speech-bar:not([hidden]) { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; }
 
 /* Consistent states for desktop controls; PDF page colours stay independent. */
 ::selection { background: var(--accent-soft); color: var(--text); }

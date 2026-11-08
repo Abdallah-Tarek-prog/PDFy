@@ -8,7 +8,7 @@ import { getSettings, saveSettings } from '../core/settings';
 import type { App } from '../app';
 import { showDropdown } from './chrome';
 import { h, icon, safe } from './dom';
-import { drawAnnotsOnCanvas } from './panels';
+import { drawAnnotsOnCanvas, tallestPage } from './panels';
 
 const CACHE = 90;
 const GAP = 22;
@@ -121,7 +121,8 @@ export class PageEditor {
     const s = this.app.session;
     if (!s || !this.isOpen) return;
     this.cellW = +this.size.value;
-    this.cellH = Math.round(this.cellW * 1.3) + LABEL;
+    // Rows are as tall as the pages need: slides get short rows, portrait pages tall ones.
+    this.cellH = Math.round(this.cellW * tallestPage(s.pages)) + LABEL;
     const width = this.scroll.clientWidth - GAP * 2;
     this.cols = Math.max(1, Math.floor((width + GAP) / (this.cellW + GAP)));
     const rows = Math.ceil(s.pages.length / this.cols);
@@ -166,8 +167,17 @@ export class PageEditor {
       const sel = this.selected.has(page.id);
       cell.classList.toggle('selected', sel);
       cell.classList.toggle('current', i === this.app.viewer.current);
-      (cell.querySelector('.pe-check') as HTMLInputElement).checked = sel;
-      this.fill(page, cell.querySelector('.pe-holder') as HTMLElement);
+      cell.setAttribute('aria-label', `Page ${i + 1}`);
+      cell.setAttribute('aria-pressed', String(sel));
+      const check = cell.querySelector('.pe-check') as HTMLInputElement;
+      check.checked = sel;
+      check.setAttribute('aria-label', `Select page ${i + 1}`);
+      // The picture's own shape, known before it is drawn, so nothing moves when it arrives.
+      const holder = cell.querySelector('.pe-holder') as HTMLElement;
+      const vp1 = viewportFor(page, 1), k = Math.min(this.cellW / vp1.width, (this.cellH - LABEL) / vp1.height);
+      holder.style.width = `${Math.round(vp1.width * k)}px`;
+      holder.style.height = `${Math.round(vp1.height * k)}px`;
+      this.fill(page, holder);
     }
     for (const [id, c] of this.cells) if (!keep.has(id)) { c.remove(); this.cells.delete(id); }
     void this.pump();
@@ -222,9 +232,10 @@ export class PageEditor {
   private indexOf(page: PageRef) { return this.app.session?.pages.indexOf(page) ?? -1; }
 
   private makeCell(page: PageRef): HTMLElement {
-    const check = h('input', { type: 'checkbox', class: 'pe-check', 'aria-label': 'Select this page', tabindex: -1 });
+    const check = h('input', { type: 'checkbox', class: 'pe-check', 'aria-label': 'Select this page' });
+    // The tick box sits on the picture's corner and the number right under it, as one group.
     const cell = h('div', { class: 'pe-cell', draggable: true, role: 'button', tabindex: -1 },
-      h('div', { class: 'pe-holder' }), check, h('div', { class: 'pe-num' }));
+      h('div', { class: 'pe-figure' }, h('div', { class: 'pe-holder' }), check), h('div', { class: 'pe-num' }));
     check.addEventListener('click', e => {
       e.stopPropagation();
       if (check.checked) this.selected.add(page.id); else this.selected.delete(page.id);

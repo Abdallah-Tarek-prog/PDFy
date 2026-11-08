@@ -44,7 +44,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'escape', group: 'Navigating', label: 'Close the current menu or dialog', icon: 'close', keys: ['Escape'], fixed: true },
   // Annotating, as in Xodo
   { id: 'pan', group: 'Annotating', label: 'Pan', icon: 'hand', keys: ['P'] },
-  { id: 'select', group: 'Annotating', label: 'Select text and objects', icon: 'cursor', keys: ['Escape'], fixed: true },
+  { id: 'select', group: 'Annotating', label: 'Back to Pan, or stop Read aloud', icon: 'hand', keys: ['Escape'], fixed: true },
   { id: 'sticky', group: 'Annotating', label: 'Sticky note', icon: 'sticky', keys: ['C'] },
   { id: 'highlight', group: 'Annotating', label: 'Highlight', icon: 'highlight', keys: ['H'] },
   { id: 'underline', group: 'Annotating', label: 'Underline', icon: 'underline', keys: ['U'] },
@@ -145,7 +145,7 @@ export function match(e: KeyboardEvent): Shortcut | null {
 const GROUP_TEXT: Record<ShortcutGroup, string> = {
   Navigating: 'Moving around documents and pages.',
   Annotating: 'Press a key to pick a tool, then draw on the page.',
-  Study: 'PDFy’s study tools, on the Edit toolbar. Not in Xodo.',
+  Study: 'Meletiq PDF’s study tools, on the Edit toolbar. Not in Xodo.',
   Other: 'Files, search, printing and more.',
 };
 
@@ -168,7 +168,7 @@ export async function shortcutsDialog(): Promise<void> {
         const chips = h('span', { class: 'sc-keys' }, ...(keys.length ? keys : ['—']).map(k => h('span', { class: 'sc-combo' }, ...(k === '—' ? [h('span', { class: 'muted' }, 'none')] : k.split('+').map((part, i) => [i ? h('span', { class: 'sc-plus' }, '+') : null, h('kbd', null, pretty(part))]).flat()))));
         const row = h('div', { class: `sc-row${changed ? ' changed' : ''}`, 'data-id': s.id },
           icon(s.icon, 18),
-          h('span', { class: 'sc-label' }, s.label, s.pdfy ? h('span', { class: 'sc-tag' }, 'PDFy') : null),
+          h('span', { class: 'sc-label' }, s.label, s.pdfy ? h('span', { class: 'sc-tag' }, 'Meletiq PDF') : null),
           chips,
           s.fixed ? h('span', { class: 'sc-fixed', title: 'Built in, like in Xodo' }, 'Fixed') : h('span', { class: 'sc-actions' },
             h('button', { class: 'btn small', onclick: () => capture(s, row) }, 'Change'),

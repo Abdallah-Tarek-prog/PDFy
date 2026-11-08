@@ -14,7 +14,7 @@ async function openFixture(name) {
   const response = await fetch(`/fixtures/${name}`);
   await app.openFile(new File([await response.blob()], name, { type: 'application/pdf' }));
   app.setMode('view');
-  app.tools.setTool('select');
+  app.tools.setTool('hand');
   await until(() => app.viewer.views.size, 'document views');
   await wait(150);
   return app.session;

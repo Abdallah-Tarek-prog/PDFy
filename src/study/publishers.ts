@@ -94,7 +94,7 @@ export function fetchPage(url: string): Promise<{ html: string; url: string }> {
       return await r.json() as { html: string; url: string };
     });
   }
-  return Promise.reject(new OfflineError('Reading dictionary pages needs the PDFy desktop app.'));
+  return Promise.reject(new OfflineError('Reading dictionary pages needs the Meletiq PDF desktop app.'));
 }
 
 const memo = new Map<string, Promise<PubResult | null>>();

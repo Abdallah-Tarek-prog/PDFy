@@ -17,6 +17,8 @@ export interface Cmd {
   needsDoc?: boolean;
   /** Lights up when this returns true, for tools and switches. */
   on?: () => boolean;
+  /** An on/off setting rather than a tool, shown differently so only the tool in hand looks chosen. */
+  switch?: boolean;
   /** Greyed out when this returns true. */
   off?: () => boolean;
   /** The id of its keyboard shortcut, so the key can be shown beside it. */
@@ -27,8 +29,10 @@ export interface Cmd {
   menu?: () => MenuSpec;
 }
 
-export interface MenuSection { name: string; items: Cmd[] }
-export interface MenuSpec { sections: MenuSection[]; search?: boolean; wide?: boolean }
+/** grid: many short choices, laid out in rows across the whole menu. */
+export interface MenuSection { name: string; items: Cmd[]; grid?: boolean }
+/** wide: sections side by side across a large menu. grouped: a compact menu with two columns of sections. */
+export interface MenuSpec { sections: MenuSection[]; search?: boolean; wide?: boolean; grouped?: boolean }
 
 export interface ChromeHooks {
   hasDoc(): boolean;
@@ -56,7 +60,10 @@ export function toolButton(c: Cmd, hooks: ChromeHooks): HTMLButtonElement {
 
 export function syncButton(b: HTMLButtonElement, c: Cmd, hooks: ChromeHooks) {
   b.disabled = (!!c.needsDoc && !hooks.hasDoc()) || !!c.off?.();
-  if (c.on) {
+  if (c.on && c.switch) {
+    b.setAttribute('role', 'switch');
+    b.setAttribute('aria-checked', String(c.on()));
+  } else if (c.on) {
     const on = c.on();
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', String(on));
@@ -102,7 +109,17 @@ export class ToolRow {
     this.fit();
   }
 
-  sync() { for (const it of this.items) syncButton(it.b, it.c, this.hooks); }
+  sync() {
+    for (const it of this.items) syncButton(it.b, it.c, this.hooks);
+    this.markMore();
+  }
+
+  /** The tool in hand may be one that moved under More: More then shows it is chosen. */
+  private markMore() {
+    const inMore = this.items.some(it => it.b.hidden && !it.c.switch && !!it.c.on?.());
+    this.overflowBtn.classList.toggle('active', inMore);
+    this.overflowBtn.setAttribute('aria-pressed', String(inMore));
+  }
 
   private hidden(): Cmd[] { return this.items.filter(it => !it.fixed && it.b.hidden).map(it => it.c); }
 
@@ -111,14 +128,16 @@ export class ToolRow {
     const movable = this.items.filter(it => !it.fixed);
     for (const it of movable) it.b.hidden = false;
     this.overflowBtn.hidden = true;
-    if (!this.el.isConnected || this.el.scrollWidth <= this.el.clientWidth + 1) return;
-    this.overflowBtn.hidden = false;
-    for (let i = movable.length - 1; i >= 0 && this.el.scrollWidth > this.el.clientWidth + 1; i--) movable[i].b.hidden = true;
-    // A separator left dangling at the end looks odd.
-    this.el.querySelectorAll('.tb-group.tb-start .tb-sep').forEach(s => {
-      const next = s.nextElementSibling as HTMLElement | null;
-      (s as HTMLElement).hidden = !next || next.hidden || next === this.overflowBtn;
-    });
+    if (this.el.isConnected && this.el.scrollWidth > this.el.clientWidth + 1) {
+      this.overflowBtn.hidden = false;
+      for (let i = movable.length - 1; i >= 0 && this.el.scrollWidth > this.el.clientWidth + 1; i--) movable[i].b.hidden = true;
+      // A separator left dangling at the end looks odd.
+      this.el.querySelectorAll('.tb-group.tb-start .tb-sep').forEach(s => {
+        const next = s.nextElementSibling as HTMLElement | null;
+        (s as HTMLElement).hidden = !next || next.hidden || next === this.overflowBtn;
+      });
+    }
+    this.markMore();
   }
 
   /** Every command in the row, visible or under More. */
@@ -135,7 +154,7 @@ export function showDropdown(anchor: HTMLElement, spec: MenuSpec, hooks: ChromeH
   // A menu opened from inside another menu is opened from the same toolbar button, for focus.
   const opener = anchor.closest('.dropdown') ? (openMenu?.anchor ?? anchor) : anchor;
   openMenu?.close(false);
-  const panel = h('div', { class: `dropdown${spec.wide ? ' wide' : ''}`, role: 'menu' });
+  const panel = h('div', { class: `dropdown${spec.wide ? ' wide' : ''}${spec.grouped ? ' grouped' : ''}`, role: 'menu' });
   const body = h('div', { class: 'dd-body' });
   const search = spec.search ? h('input', { class: 'dd-search', placeholder: 'Find a tool…', 'aria-label': 'Find a tool', spellcheck: false }) : null;
 
@@ -147,12 +166,13 @@ export function showDropdown(anchor: HTMLElement, spec: MenuSpec, hooks: ChromeH
       const items = sec.items.filter(c => !q || c.label.toLowerCase().includes(q) || (c.title ?? '').toLowerCase().includes(q) || sec.name.toLowerCase().includes(q) || c.aka?.some(a => a.toLowerCase().includes(q)));
       if (!items.length) continue;
       shown += items.length;
-      body.append(h('div', { class: 'dd-section' },
+      body.append(h('div', { class: `dd-section${sec.grid ? ' dd-grid' : ''}`, role: 'group', 'aria-label': sec.name },
         h('div', { class: 'dd-title' }, sec.name),
         ...items.map(c => {
           const key = c.key ? hooks.keyFor(c.key) : '';
           const item = h('button', {
-            class: `dd-item${c.on?.() ? ' on' : ''}`, role: 'menuitem', 'data-label': c.label, title: c.title ?? c.label,
+            class: `dd-item${c.on?.() ? ' on' : ''}`, role: c.on ? (c.switch ? 'menuitemcheckbox' : 'menuitemradio') : 'menuitem',
+            'aria-checked': c.on ? String(c.on()) : null, 'data-label': c.label, title: c.title ?? c.label,
             disabled: (!!c.needsDoc && !hooks.hasDoc()) || !!c.off?.(),
             onclick: safe(() => {
               if (c.menu) { showDropdown(item, c.menu(), hooks); return; }

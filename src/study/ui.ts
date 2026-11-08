@@ -63,6 +63,7 @@ export class Study {
     // Only a selection made by this click counts, not one left over from before.
     host.viewer.scroller.addEventListener('pointerdown', () => { this.selAtDown = window.getSelection()?.toString().trim() ?? ''; }, true);
     host.viewer.scroller.addEventListener('pointerup', () => setTimeout(() => this.afterSelect(), 0));
+    host.viewer.scroller.addEventListener('dblclick', e => safe(() => this.lookupAt(e), 'Looking up')());
     host.viewer.scroller.addEventListener('scroll', () => closeDictionary(), { passive: true });
   }
 
@@ -72,13 +73,38 @@ export class Study {
     this.lookupOn = on;
     saveSettings({ lookup: on });
     if (!on) closeDictionary();
+    // Look-ups happen with Pan, so a drawing tool steps aside.
+    if (on) this.host.tools.useReadingTool();
     this.host.refreshStudy();
-    toast(on ? 'Word lookup is on. Double-click a word, or select a few.' : 'Word lookup is off.', 'info');
+  }
+
+  /**
+   * Double-clicking a word of the page's own text looks it up in Pan.
+   * The word is found from the text's position, so a link or a mark on top of it does not get in
+   * the way. Words in pictures need Read picture first.
+   */
+  private lookupAt(e: MouseEvent) {
+    const t = this.host.tools.tool;
+    if (!this.lookupOn || t !== 'hand') return;
+    const target = e.target as Element;
+    if (target.closest('[data-id], .sel-handle, .read-layer, .inline-editor, input, textarea, select')) return;
+    // Native selection already picked the word; that look-up happens when the click ends.
+    if (this.selectedText()) return;
+    const pageEl = target.closest('.page') as HTMLElement | null;
+    const v = pageEl ? this.host.viewer.views.get(pageEl.dataset.pageId!) : null;
+    if (!v) return;
+    const hit = wordAt(v.textHost, e.clientX, e.clientY);
+    if (!hit) {
+      if (v.textLayer && !v.textHost.querySelector('span')) toast('This page is a picture, with no text to look up. Use Read picture, then double-click a word.', 'info');
+      return;
+    }
+    const r = hit.range.getBoundingClientRect();
+    void showDictionary(hit.word, { x: r.left, y: r.bottom, sentence: this.sentenceAround(hit.word, hit.span) });
   }
 
   /** With lookup on, choosing a word or short phrase is enough. Longer selections are left alone. */
   private afterSelect() {
-    if (!this.lookupOn || this.host.tools.tool !== 'select') return;
+    if (!this.lookupOn || this.host.tools.tool !== 'hand') return;
     const text = this.selectedText();
     if (!text || text === this.selAtDown || text.length > 60 || text.split(/\s+/).length > 5) return;
     this.lookupSelection();
@@ -91,9 +117,7 @@ export class Study {
   }
 
   /** The words around the selection, so the whole sentence can be translated. */
-  private sentenceAround(word: string): string {
-    const sel = window.getSelection();
-    const el = sel?.anchorNode?.parentElement;
+  private sentenceAround(word: string, el = window.getSelection()?.anchorNode?.parentElement): string {
     const host = el?.closest('.textLayer, .read-layer');
     if (!el || !host) return '';
     const spans = [...host.querySelectorAll('span')].filter(s => !s.children.length);
@@ -131,6 +155,7 @@ export class Study {
       // A newer read, another document, or a page that scrolled away: this result is no longer wanted.
       if (mine !== this.readToken || this.host.session !== s || !v.el.isConnected) return;
       if (!words.length) { toast('No words could be read there. Try a larger area, or zoom into a sharper picture.', 'info'); return; }
+      this.host.tools.useReadingTool();
       showWordLayer(v, words, shot, found => s.addPictureWords(page.id, found));
     } finally {
       this.host.setStatus('');
@@ -171,7 +196,7 @@ export class Study {
       author: getSettings().author, created: Date.now(),
     };
     this.host.session!.addAnnots(at.v.page, [a], 'Add equation');
-    this.host.tools.setTool('select');
+    this.host.tools.useReadingTool();
     this.host.viewer.select(at.v.page.id, a.id);
     this.host.onSelection();
   }
@@ -275,6 +300,38 @@ export class Study {
       lookup: this.lookupOn,
     };
   }
+}
+
+const WORD_CHAR = /[\p{L}\p{N}'’-]/u;
+
+/** The word of the page's text under a point, worked out from where each letter sits on screen. */
+export function wordAt(textHost: HTMLElement, x: number, y: number): { word: string; range: Range; span: HTMLElement } | null {
+  const range = document.createRange();
+  for (const span of textHost.querySelectorAll<HTMLElement>('span')) {
+    const node = span.firstChild;
+    if (span.children.length || node?.nodeType !== Node.TEXT_NODE) continue;
+    const box = span.getBoundingClientRect();
+    if (x < box.left || x > box.right || y < box.top || y > box.bottom) continue;
+    const text = node.textContent ?? '';
+    for (let i = 0; i < text.length; i++) {
+      range.setStart(node, i);
+      range.setEnd(node, i + 1);
+      const r = range.getBoundingClientRect();
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+      if (!WORD_CHAR.test(text[i])) return null;
+      let a = i, b = i + 1;
+      while (a > 0 && WORD_CHAR.test(text[a - 1])) a--;
+      while (b < text.length && WORD_CHAR.test(text[b])) b++;
+      // Quotes and dashes around a word are not part of it.
+      while (a < b && /['’-]/.test(text[a])) a++;
+      while (b > a && /['’-]/.test(text[b - 1])) b--;
+      if (a === b) return null;
+      range.setStart(node, a);
+      range.setEnd(node, b);
+      return { word: text.slice(a, b), range, span };
+    }
+  }
+  return null;
 }
 
 // ---- The equation editor ----

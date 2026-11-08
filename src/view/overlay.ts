@@ -25,7 +25,7 @@ function localFrame(a: Annot): string {
 }
 
 export function annotNode(a: Annot): SVGElement {
-  const g = s('g', { 'data-id': a.id, class: `annot k-${a.kind}${a.ghost ? ' ghost' : ''}${a.field ? ' own-field' : ''}`, opacity: a.ghost ? null : a.opacity });
+  const g = s('g', { 'data-id': a.id, class: `annot k-${a.kind}${a.kind === 'highlight' || a.marker ? ' highlighter' : ''}${a.ghost ? ' ghost' : ''}${a.field ? ' own-field' : ''}`, opacity: a.ghost ? null : a.opacity });
 
   if (a.ghost) {
     // The PDF engine still draws this one. All we need is something clickable.
@@ -159,8 +159,18 @@ export const RESIZABLE = new Set(['math', 'image', 'stamp', 'text', 'callout', '
 
 export interface HandleInfo { fx: 0 | 0.5 | 1; fy: 0 | 0.5 | 1 }
 
+/** Lines, arrows and distances are changed by their two ends rather than a box. */
+export const hasEnds = (a: Annot) => (a.kind === 'line' || a.kind === 'arrow' || (a.kind === 'measure' && a.measureType === 'distance')) && a.pts?.length === 4;
+
 /** Selection frame and handles, in screen pixels, so their size does not change with zoom. */
 export function selectionNode(a: Annot, p: PageRef, vp: Viewport, handles = true): SVGElement {
+  if (handles && hasEnds(a)) {
+    const g = s('g', { class: 'selection' });
+    const [x0, y0] = toScreen(vp, a.pts![0], a.pts![1]), [x1, y1] = toScreen(vp, a.pts![2], a.pts![3]);
+    g.append(s('line', { class: 'sel-frame', x1: x0, y1: y0, x2: x1, y2: y1 }));
+    [[x0, y0], [x1, y1]].forEach(([x, y], end) => g.append(s('circle', { class: 'sel-handle sel-end', cx: x, cy: y, r: 5.5, 'data-end': end, style: 'cursor:move' })));
+    return g;
+  }
   const b = annotBounds(a);
   const pts = [toScreen(vp, b[0], b[1]), toScreen(vp, b[2], b[1]), toScreen(vp, b[2], b[3]), toScreen(vp, b[0], b[3])];
   const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);

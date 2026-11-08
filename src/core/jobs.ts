@@ -109,6 +109,7 @@ const fitsStandardFont = (s: string) => {
 
 async function toSaveAnnot(a: Annot): Promise<SaveAnnot | null> {
   if (a.ghost) return null; // Unedited existing annotations stay in the file untouched.
+  if (a.kind === 'attachment' && !a.attachment?.blob) throw new Error('The pinned file could not be read. Saving was stopped to keep the original file safe.');
   const { image, ...rest } = a;
   const out: SaveAnnot = { ...rest };
   if (isRichBox(a)) {
@@ -168,15 +169,16 @@ async function toSavePage(session: Session, p: PageRef): Promise<SavePage> {
 async function loadPinnedFiles(session: Session, pages: PageRef[]) {
   for (const p of pages) {
     const src = p.source ? session.sources.get(p.source) : null;
-    if (!src) continue;
     for (const a of p.annots) {
       const f = a.attachment;
-      if (a.ghost || !f || f.blob || !f.fileId) continue;
+      if (a.ghost || a.kind !== 'attachment' || f?.blob) continue;
+      if (!f || !src || !f.fileId) throw new Error(`The pinned file "${f?.name ?? 'attachment'}" could not be read. Saving was stopped to keep the original file safe.`);
       try {
         const got = await src.pdf.getAttachmentContent(f.fileId) as unknown as { content?: Uint8Array } | Uint8Array | null;
         const bytes = got instanceof Uint8Array ? got : got?.content;
-        if (bytes) f.blob = new Blob([bytes as BlobPart], { type: f.mime || (f.voice ? 'audio/webm' : 'application/octet-stream') });
-      } catch (err) { console.warn('Pinned file', f.name, err); }
+        if (!bytes) throw new Error('The attachment has no readable bytes.');
+        f.blob = new Blob([bytes as BlobPart], { type: f.mime || (f.voice ? 'audio/webm' : 'application/octet-stream') });
+      } catch (err) { throw new Error(`The pinned file "${f.name}" could not be read. Saving was stopped to keep the original file safe.`, { cause: err }); }
     }
   }
 }
@@ -323,7 +325,7 @@ async function untouchedPagesMatch(session: Session, options: BuildOptions, page
   return true;
 }
 
-const REBUILD_NOTE = 'This PDF has internal damage the save engine cannot safely read. So nothing was lost, its pages were saved as sharp pictures with the text kept searchable. Links, form fields and bookmarks from the original are not kept.';
+const REBUILD_NOTE = 'This PDF has internal damage the save engine cannot safely read. Its pages were saved as sharp pictures with the text kept searchable where it could be read. Links, form fields and bookmarks from the original are not kept.';
 
 /**
  * The fallback when a file cannot be saved normally. The viewing engine already draws it, so each page
@@ -331,15 +333,14 @@ const REBUILD_NOTE = 'This PDF has internal damage the save engine cannot safely
  */
 async function rebuildFromPictures(session: Session, options: BuildOptions, pages: PageRef[], keepPassword: string | undefined, progress?: (p: number) => void): Promise<{ blob: Blob; warnings: string[] }> {
   const rebuilt: SavePage[] = [];
-  const unreadable: number[] = [];
   for (let i = 0; i < pages.length; i++) {
     progress?.((i / pages.length) * 0.7);
     const p = pages[i];
     let pdfPage: PDFPageProxy | null = null;
     if (p.source) {
-      // A page even the viewer cannot read comes out blank, rather than failing the whole save.
       try { pdfPage = await session.pdfPage(p); }
-      catch (err) { console.warn('Page could not be read', i + 1, err); unreadable.push(i + 1); }
+      catch (err) { throw new Error(`Page ${i + 1} could not be read. Saving was stopped to keep the original file safe.`, { cause: err }); }
+      if (!pdfPage) throw new Error(`Page ${i + 1} could not be read. Saving was stopped to keep the original file safe.`);
     }
     if (!pdfPage) { rebuilt.push(await toSavePage(session, { ...p, source: null, index: -1, removed: [] })); continue; }
     const vp1 = viewportFor(p, 1);
@@ -348,16 +349,14 @@ async function rebuildFromPictures(session: Session, options: BuildOptions, page
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(W * k));
     canvas.height = Math.max(1, Math.round(H * k));
-    let drawn = true;
     try { await renderToCanvas(pdfPage, p, canvas, k, undefined, p.source ? session.sources.get(p.source)?.ocg : undefined).promise; }
-    catch (err) { console.warn('Page could not be drawn', i + 1, err); drawn = false; }
+    catch (err) { canvas.width = 0; throw new Error(`Page ${i + 1} could not be drawn. Saving was stopped to keep the original file safe.`, { cause: err }); }
     const flip = (x: number, y: number) => { const q = toScreen(vp1, x, y); return [q[0], H - q[1]]; };
     const annots: SaveAnnot[] = [];
-    if (drawn) {
+    try {
       const jpg = await new Promise<Blob>((res, rej) => canvas.toBlob(b => (b ? res(b) : rej(new Error('Could not create the page picture'))), 'image/jpeg', 0.92));
       annots.push({ id: uid(), kind: 'image', rect: [0, 0, W, H], color: '#000000', opacity: 1, width: 0, burn: true, imageBytes: await jpg.arrayBuffer(), imageType: 'jpg' });
-    }
-    canvas.width = 0;
+    } finally { canvas.width = 0; }
     for (const a of p.annots) {
       if (a.ghost) continue; // Already part of the picture.
       const s = await toSaveAnnot(transformAnnot(a, flip, pageRotation(p)));
@@ -377,6 +376,5 @@ async function rebuildFromPictures(session: Session, options: BuildOptions, page
   const options2: BuildOptions = { ...options, dropDocLevel: false };
   const result = await edit.run({ op: 'build', sources: [], pages: rebuilt, options: options2, keepPassword }, f => progress?.(0.7 + f * 0.3));
   const notes = [REBUILD_NOTE, ...(result.warnings ?? [])];
-  if (unreadable.length) notes.push(`These pages could not be read and are blank: ${unreadable.slice(0, 20).join(', ')}.`);
   return { blob: result.blob!, warnings: notes };
 }

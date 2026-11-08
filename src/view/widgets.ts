@@ -36,12 +36,17 @@ export async function loadGhosts(session: Session, page: PageRef, pdfPage: PDFPa
   page.ghostsLoaded = true;
   let list: any[];
   try { list = await pdfPage.getAnnotations({ intent: 'display' }); } catch { return; }
+  const represented = new Set(page.removed);
+  for (const a of page.annots) {
+    if (a.importedFrom) represented.add(a.importedFrom);
+    for (const id of a.importedReplies ?? []) represented.add(id);
+  }
   const added: Annot[] = [];
   // Replies and review states are attached to their parent, not shown as separate comments.
   const threads = new Map<string, any[]>();
   for (const d of list) if (d.inReplyTo) (threads.get(d.inReplyTo) ?? threads.set(d.inReplyTo, []).get(d.inReplyTo)!).push(d);
   for (const d of list) {
-    if (d.inReplyTo) continue;
+    if (d.inReplyTo || represented.has(d.id)) continue;
     const kind = KIND_OF[d.subtype];
     if (!kind || !d.rect || !d.id) continue;
     const a: Annot = {
@@ -60,6 +65,7 @@ export async function loadGhosts(session: Session, page: PageRef, pdfPage: PDFPa
       a.quads = q;
     }
     if (d.inkLists) a.paths = d.inkLists.map((l: ArrayLike<number>) => Array.from(l));
+    if (kind === 'ink' && ['FreehandHighlight', 'InkHighlight'].includes(d.it)) a.marker = true;
     if (d.lineCoordinates) a.pts = Array.from(d.lineCoordinates);
     if (d.vertices) {
       a.pts = d.vertices[0]?.x !== undefined ? d.vertices.flatMap((v: any) => [v.x, v.y]) : Array.from(d.vertices);
@@ -117,7 +123,7 @@ export async function loadGhosts(session: Session, page: PageRef, pdfPage: PDFPa
     added.push(a);
   }
   if (added.length) {
-    page.annots.unshift(...added);
+    page.annots = [...added, ...page.annots];
     session.emit({ kind: 'annots', pageIds: [page.id] });
   }
 }
@@ -152,6 +158,7 @@ export function buildOwnFields(viewer: Viewer, v: PageView) {
     if (!ctl) {
       if (f.type === 'text') {
         ctl = ht > 40 ? h('textarea', { class: 'own-field-ctl' }) : h('input', { class: 'own-field-ctl', type: 'text' });
+        ctl.addEventListener('input', () => session?.markDirty());
         ctl.addEventListener('change', () => commit(ctl!.value));
       } else if (f.type === 'radio') {
         ctl = h('input', { class: 'own-field-ctl check', type: 'radio', name: `own-radio-${f.name}` });
@@ -229,10 +236,11 @@ export async function buildWidgets(viewer: Viewer, v: PageView, pdfPage?: PDFPag
 
 function buildField(viewer: Viewer, v: PageView, src: { pdf: any; formsEdited: boolean }, d: any, box: Record<string, string>, height: number, radioIds: string[]): HTMLElement | null {
   const storage = src.pdf.annotationStorage;
+  const session = viewer.session;
   const commit = (value: unknown) => {
     storage.setValue(d.id, { value });
     src.formsEdited = true;
-    viewer.session?.markDirty();
+    session?.markDirty();
     v.needsRender = true;
     viewer.schedule();
   };
@@ -244,6 +252,7 @@ function buildField(viewer: Viewer, v: PageView, src: { pdf: any; formsEdited: b
       ? h('textarea', { class: 'field', style: { ...box, fontSize: `${12 * viewer.scale}px` }, value: saved ?? '', maxLength: d.maxLen || undefined })
       : h('input', { class: 'field', type: d.password ? 'password' : 'text', style: { ...box, fontSize: size }, value: saved ?? '', maxLength: d.maxLen || undefined });
     el.addEventListener('change', () => commit((el as HTMLInputElement).value));
+    el.addEventListener('input', () => session?.markDirty());
     return el;
   }
   if (d.fieldType === 'Btn' && d.checkBox) {

@@ -77,7 +77,7 @@ export async function recordVoice(): Promise<Blob | null> {
   const url = URL.createObjectURL(blob);
   try {
     const player = h('audio', { controls: true, src: url, class: 'rec-preview' });
-    const choice = await openDialog<'keep' | 'again' | 'cancel'>('Keep this voice note?', h('div', { class: 'rec-box' }, player, h('p', { class: 'muted' }, `${clock(elapsed / 1000)} recorded. Keep it, then click where it should be pinned.`)),
+    const choice = await openDialog<'keep' | 'again' | 'cancel'>('Keep this voice note?', h('div', { class: 'rec-box' }, player, h('p', { class: 'muted' }, `${clock(elapsed / 1000)} recorded.`)),
       [{ label: 'Discard', value: 'cancel' }, { label: 'Record again', value: 'again' }, { label: 'Keep', value: 'keep', primary: true }], 'cancel');
     player.pause();
     if (choice === 'again') return recordVoice();

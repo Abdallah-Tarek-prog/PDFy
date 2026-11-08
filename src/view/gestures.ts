@@ -15,16 +15,34 @@ export interface GestureHooks {
 export function installGestures(viewer: Viewer, hooks: GestureHooks) {
   const sc = viewer.scroller;
 
+  // Native pinch must reach the page, but it must never magnify toolbars, panels or Home.
+  window.addEventListener('wheel', e => {
+    if ((e.ctrlKey || e.metaKey) && (!viewer.session || !sc.contains(e.target as Node))) e.preventDefault();
+  }, { capture: true, passive: false });
+
   // ---- Wheel and touchpad ----
+  // Two-finger scrolling on a touchpad is left to the browser, which moves freely in both
+  // directions. A touchpad pinch arrives as a wheel event marked with Ctrl, although no Ctrl key
+  // is down; Ctrl+wheel with the real key held is the mouse. Each kind zooms by a fixed rate per
+  // pixel, so the same movement zooms the same however the browser splits it into events.
+  let ctrlHeld = false;
+  const track = (e: KeyboardEvent | PointerEvent) => { ctrlHeld = e.ctrlKey || e.metaKey; };
+  window.addEventListener('keydown', track, true);
+  window.addEventListener('keyup', track, true);
+  window.addEventListener('pointermove', track, true);
   sc.addEventListener('wheel', e => {
     if (!viewer.session) return;
-    const zoom = e.ctrlKey || e.metaKey || (getSettings().wheelZooms && !e.shiftKey && !e.altKey);
+    const px = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+    const pinch = (e.ctrlKey || e.metaKey) && !ctrlHeld;
+    // "The wheel zooms" is meant for a mouse wheel, so movement that looks like a touchpad's (sideways,
+    // or small and fractional) keeps scrolling. This only chooses between scroll and zoom.
+    const wheelLike = e.deltaMode !== 0 || (e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50);
+    const zoom = e.ctrlKey || e.metaKey || (getSettings().wheelZooms && wheelLike && !e.shiftKey && !e.altKey);
     if (!zoom) return;
     e.preventDefault();
-    // A touchpad pinch arrives as many small steps, a mouse wheel as a few large ones.
-    const lines = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
-    const k = Math.abs(lines) < 40 ? 0.012 : 0.0018;
-    viewer.zoomAt(viewer.scale * Math.exp(-lines * k), e.clientX, e.clientY);
+    // A pinch's pixels are the browser's own measure of the fingers' movement, so they map straight
+    // to scale. A mouse wheel click of 100 pixels is about a 20% step.
+    viewer.zoomAt(viewer.scale * Math.exp(-px * (pinch ? 0.01 : 0.0018)), e.clientX, e.clientY);
   }, { passive: false });
 
   // ---- Middle button: drag to move in any direction ----
@@ -90,6 +108,7 @@ export function installGestures(viewer: Viewer, hooks: GestureHooks) {
   window.addEventListener('pointercancel', lift);
 
   window.addEventListener('blur', () => {
+    ctrlHeld = false;
     stopDrag?.();
     cancelAnimationFrame(flick);
     touches.clear();

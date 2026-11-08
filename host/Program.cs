@@ -18,10 +18,16 @@ internal static class Program
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log("Fatal: " + e.ExceptionObject);
         TaskScheduler.UnobservedTaskException += (_, e) => { Log("Task: " + e.Exception); e.SetObserved(); };
 
+        // PDFy already open: give it the files, so they appear as tabs in that one window.
+        if (!SingleInstance.TryBecomePrimary(args)) return;
+        CrashLog.SessionStarted();
+
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new MainForm(args));
+        SingleInstance.Release();
+        CrashLog.SessionEnded();
     }
 
     internal static readonly string DataDir =
@@ -30,21 +36,7 @@ internal static class Program
             ? Path.GetFullPath(testDataDir)
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDFy");
 
-    internal static void Log(string message)
-    {
-        try
-        {
-            Directory.CreateDirectory(DataDir);
-            var path = Path.Combine(DataDir, "pdfy.log");
-            // Keep the log from ever growing large.
-            if (File.Exists(path) && new FileInfo(path).Length > 256 * 1024) File.Delete(path);
-            File.AppendAllText(path, $"{DateTime.Now:s} {message}{Environment.NewLine}");
-        }
-        catch
-        {
-            // Logging must never be the thing that fails.
-        }
-    }
+    internal static void Log(string message) => CrashLog.Write(message);
 }
 
 internal sealed partial class MainForm : Form
@@ -57,26 +49,65 @@ internal sealed partial class MainForm : Form
     private WebView2 _web = new() { Dock = DockStyle.Fill, DefaultBackgroundColor = HeaderColor };
     private readonly Queue<string> _pendingFiles = new();
     private CoreWebView2Environment? _env;
+    private readonly HashSet<string> _knownFiles = LoadKnownFiles();
     private bool _pageReady;
     private bool _closeApproved;
     private int _restarts;
     private DateTime _lastRestart = DateTime.MinValue;
+    private string _lastMemory = "none yet";
+    private long _loggedMemoryStep;
+    private bool _loggedLowMemory;
+    private readonly System.Windows.Forms.Timer _memoryTimer = new() { Interval = 60_000 };
 
     public MainForm(string[] args)
     {
-        Text = "PDFy";
+        Text = "Meletiq PDF";
         BackColor = HeaderColor;
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         MinimumSize = new Size(640, 420);
         Controls.Add(_web);
         RestoreBounds_();
-        foreach (var a in args)
+        foreach (var a in args.Where(File.Exists).Select(Path.GetFullPath).OrderBy(p => p, Comparer<string>.Create(ByExplorerName)))
         {
-            if (File.Exists(a)) _pendingFiles.Enqueue(Path.GetFullPath(a));
+            _pendingFiles.Enqueue(a);
         }
-        Shown += async (_, _) => await StartAsync();
+        Shown += async (_, _) =>
+        {
+            SingleInstance.Listen(paths => BeginInvoke(() => OpenFromOtherLaunch(paths)));
+            await StartAsync();
+        };
         FormClosing += OnFormClosing;
         Resize += (_, _) => TrimWhenMinimised();
+        _memoryTimer.Tick += (_, _) => SampleMemory();
+        _memoryTimer.Start();
+    }
+
+    /// <summary>
+    /// Once a minute, a few milliseconds: how much memory PDFy uses. Kept for the next crash line, and
+    /// written to the log only when it passes a new whole gigabyte or the computer runs low.
+    /// </summary>
+    private void SampleMemory()
+    {
+        try
+        {
+            var ids = _web.CoreWebView2?.Environment.GetProcessInfos().Select(p => p.ProcessId).ToArray() ?? [];
+            var mb = CrashLog.ProcessMemoryMb(ids);
+            var system = CrashLog.SystemMemory();
+            _lastMemory = $"PDFy {mb:N0} MB in {ids.Length + 1} processes at {DateTime.Now:HH:mm}, {system}";
+            var step = mb / 1024;
+            if (step > _loggedMemoryStep)
+            {
+                _loggedMemoryStep = step;
+                Program.Log("Memory high: " + _lastMemory);
+            }
+            var low = CrashLog.FreeMemoryPercent() is >= 0 and < 10;
+            if (low && !_loggedLowMemory) Program.Log("Computer is low on memory: " + _lastMemory);
+            _loggedLowMemory = low;
+        }
+        catch (Exception e)
+        {
+            _lastMemory = "reading failed: " + e.Message;
+        }
     }
 
     private static string WebRoot => Path.Combine(AppContext.BaseDirectory, "web");
@@ -87,7 +118,7 @@ internal sealed partial class MainForm : Form
         {
             if (!File.Exists(Path.Combine(WebRoot, "index.html")))
             {
-                Fatal("The app files are missing. Reinstall PDFy, or run the build again.");
+                Fatal("The app files are missing. Reinstall Meletiq PDF, or run the build again.");
                 return;
             }
             // Measured on a 144 MB file: no GPU saves about 40% of memory and returns it after closing,
@@ -103,12 +134,12 @@ internal sealed partial class MainForm : Form
         }
         catch (WebView2RuntimeNotFoundException)
         {
-            Fatal("PDFy needs the Microsoft Edge WebView2 Runtime, which is part of Windows 11.\n\nIt can be installed from Microsoft's website.");
+            Fatal("Meletiq PDF needs the Microsoft Edge WebView2 Runtime, which is part of Windows 11.\n\nIt can be installed from Microsoft's website.");
         }
         catch (Exception e)
         {
             Program.Log("Start: " + e);
-            Fatal("PDFy could not start: " + e.Message);
+            Fatal("Meletiq PDF could not start: " + e.Message);
         }
     }
 
@@ -127,7 +158,8 @@ internal sealed partial class MainForm : Form
         // The page has its own shortcuts for print, search and zoom.
         s.AreBrowserAcceleratorKeysEnabled = false;
         s.IsZoomControlEnabled = false;
-        s.IsPinchZoomEnabled = false;
+        // Deliver touchpad pinch input to the page, which zooms the PDF instead of the window UI.
+        s.IsPinchZoomEnabled = true;
         s.IsStatusBarEnabled = false;
         s.IsGeneralAutofillEnabled = false;
         s.IsPasswordAutosaveEnabled = false;
@@ -135,7 +167,7 @@ internal sealed partial class MainForm : Form
         s.AreDevToolsEnabled = Environment.GetEnvironmentVariable("PDFY_DEV") == "1";
         s.AreDefaultScriptDialogsEnabled = true;
 
-        core.DocumentTitleChanged += (_, _) => Text = string.IsNullOrEmpty(core.DocumentTitle) ? "PDFy" : core.DocumentTitle;
+        core.DocumentTitleChanged += (_, _) => Text = string.IsNullOrEmpty(core.DocumentTitle) ? "Meletiq PDF" : core.DocumentTitle;
         core.ProcessFailed += OnProcessFailed;
         core.WebMessageReceived += OnWebMessage;
         core.ContainsFullScreenElementChanged += (_, _) => SetFullScreen(core.ContainsFullScreenElement);
@@ -165,16 +197,40 @@ internal sealed partial class MainForm : Form
         };
     }
 
-    /// <summary>A minimised window hands back whatever memory the engine can spare.</summary>
+    /// <summary>
+    /// A minimised window hands back whatever memory the engine can spare. Not during the minimise
+    /// animation, which still shows the page: two seconds later, if it is still minimised.
+    /// </summary>
+    private System.Windows.Forms.Timer? _trimTimer;
+
     private void TrimWhenMinimised()
     {
-        var core = _web.CoreWebView2;
-        if (core is null) return;
+        if (_web.CoreWebView2 is null) return;
+        if (WindowState != FormWindowState.Minimized)
+        {
+            _trimTimer?.Stop();
+            SetMemoryLevel(CoreWebView2MemoryUsageTargetLevel.Normal);
+            return;
+        }
+        if (_trimTimer is null)
+        {
+            _trimTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+            _trimTimer.Tick += (_, _) =>
+            {
+                _trimTimer.Stop();
+                if (WindowState == FormWindowState.Minimized) SetMemoryLevel(CoreWebView2MemoryUsageTargetLevel.Low);
+            };
+        }
+        _trimTimer.Stop();
+        _trimTimer.Start();
+    }
+
+    private void SetMemoryLevel(CoreWebView2MemoryUsageTargetLevel level)
+    {
         try
         {
-            core.MemoryUsageTargetLevel = WindowState == FormWindowState.Minimized
-                ? CoreWebView2MemoryUsageTargetLevel.Low
-                : CoreWebView2MemoryUsageTargetLevel.Normal;
+            var core = _web.CoreWebView2;
+            if (core is not null && core.MemoryUsageTargetLevel != level) core.MemoryUsageTargetLevel = level;
         }
         catch (Exception e)
         {
@@ -202,12 +258,16 @@ internal sealed partial class MainForm : Form
     /// </summary>
     private async void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
     {
-        Program.Log($"Engine failed: {e.ProcessFailedKind} {e.Reason} code {e.ExitCode}");
+        string module = "", dump = "";
+        try { if (!string.IsNullOrEmpty(e.FailureSourceModulePath)) module = $", in {Path.GetFileName(e.FailureSourceModulePath)}"; } catch { }
+        if (CrashLog.NewestDump() is { } d) dump = $", newest dump {d}";
+        Program.Log($"Engine failed: {e.ProcessFailedKind} {e.Reason} code 0x{e.ExitCode:X8} ({CrashLog.Explain(e.ExitCode)}){module}. " +
+                    $"Last memory reading: {_lastMemory}. Now: {CrashLog.SystemMemory()}{dump}");
         if ((DateTime.Now - _lastRestart).TotalMinutes > 5) _restarts = 0;
         _lastRestart = DateTime.Now;
         if (++_restarts > MaxRestarts)
         {
-            Fatal("The PDF engine keeps stopping. Your unsaved work is kept and will be offered next time PDFy starts.");
+            Fatal("The PDF engine keeps stopping. Your unsaved work is kept and will be offered next time Meletiq PDF starts.");
             return;
         }
 
@@ -242,7 +302,7 @@ internal sealed partial class MainForm : Form
         catch (Exception e)
         {
             Program.Log("Rebuild: " + e);
-            Fatal("PDFy could not recover. Your unsaved work will be offered next time it starts.");
+            Fatal("Meletiq PDF could not recover. Your unsaved work will be offered next time it starts.");
         }
     }
 
@@ -256,6 +316,7 @@ internal sealed partial class MainForm : Form
             {
                 case "ready":
                     _pageReady = true;
+                    SampleMemory();
                     SendWindowState();
                     SendPendingFiles();
                     break;
@@ -278,6 +339,21 @@ internal sealed partial class MainForm : Form
                 case "font-list":
                     _ = SendFontListAsync();
                     break;
+                case "file-location":
+                    LocateFile(e, doc.RootElement);
+                    break;
+                case "file-picker":
+                    RequestFilePicker(e, doc.RootElement.Clone());
+                    break;
+                case "file-access":
+                    RenewFileAccess(e, doc.RootElement);
+                    break;
+                case "log":
+                    // Errors inside the page. The page already limits how many it sends.
+                    if (e.Source.StartsWith($"https://{Host}/", StringComparison.OrdinalIgnoreCase) &&
+                        doc.RootElement.TryGetProperty("text", out var lt) && lt.GetString() is { Length: > 0 } text)
+                        Program.Log("Page: " + CrashLog.Trim(text.ReplaceLineEndings(" | "), 3000));
+                    break;
                 case "reference":
                     _ = OpenReferenceAsync(
                         doc.RootElement.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "",
@@ -289,6 +365,231 @@ internal sealed partial class MainForm : Form
         {
             Program.Log("Message: " + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Where a dropped or pasted file lives on disk: its full path and a fresh handle to it. Only a real
+    /// file passed over by PDFy's own page is used, never a path the page names. WebView2 passes over
+    /// files only, not file handles, so files opened through PDFy's own file windows carry their path instead.
+    /// </summary>
+    private void LocateFile(CoreWebView2WebMessageReceivedEventArgs e, JsonElement message)
+    {
+        if (!e.Source.StartsWith($"https://{Host}/", StringComparison.OrdinalIgnoreCase)) return;
+        var id = message.GetProperty("id").GetInt32();
+        string? path = null, error = null;
+        object? handle = null;
+        try
+        {
+            path = e.AdditionalObjects is { Count: > 0 } objects && objects[0] is CoreWebView2File file ? file.Path : null;
+            if (string.IsNullOrEmpty(path) || !Path.IsPathFullyQualified(path)) error = "unsupported";
+            else if (!File.Exists(path)) error = "missing";
+            else
+            {
+                handle = (_env ?? throw new InvalidOperationException("The engine is not ready.")).CreateWebFileSystemFileHandle(path, CoreWebView2FileSystemHandlePermission.ReadWrite);
+                RememberKnownFile(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            Program.Log("Locate file: " + ex.Message);
+            error = "failed";
+            handle = null;
+        }
+        if (error is not null) path = null;
+        try
+        {
+            var json = JsonSerializer.Serialize(new { type = "file-location", id, ok = error is null, path, error });
+            if (handle is null) _web.CoreWebView2?.PostWebMessageAsJson(json);
+            else _web.CoreWebView2?.PostWebMessageAsJson(json, new List<object> { handle });
+        }
+        catch (Exception ex)
+        {
+            Program.Log("Locate reply: " + ex.Message);
+        }
+    }
+
+    private bool _pickerOpen;
+
+    private static string KnownFilesPath => Path.Combine(Program.DataDir, "file-access.json");
+
+    private static HashSet<string> LoadKnownFiles()
+    {
+        try { return new HashSet<string>(JsonSerializer.Deserialize<string[]>(File.ReadAllText(KnownFilesPath)) ?? [], StringComparer.OrdinalIgnoreCase); }
+        catch { return new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
+    }
+
+    private void RememberKnownFile(string path)
+    {
+        if (!_knownFiles.Add(Path.GetFullPath(path))) return;
+        try
+        {
+            Directory.CreateDirectory(Program.DataDir);
+            File.WriteAllText(KnownFilesPath + ".tmp", JsonSerializer.Serialize(_knownFiles));
+            File.Move(KnownFilesPath + ".tmp", KnownFilesPath, true);
+        }
+        catch (Exception ex) { Program.Log("File access record: " + ex.Message); }
+    }
+
+    /// <summary>Refreshes a restored browser handle only for files the user already opened in PDFy.</summary>
+    private void RenewFileAccess(CoreWebView2WebMessageReceivedEventArgs e, JsonElement message)
+    {
+        if (!e.Source.StartsWith($"https://{Host}/", StringComparison.OrdinalIgnoreCase)) return;
+        var id = message.GetProperty("id").GetInt32();
+        string? path = null, error = null;
+        object? handle = null;
+        try
+        {
+            path = Path.GetFullPath(message.GetProperty("path").GetString() ?? "");
+            if (!_knownFiles.Contains(path)) error = "unsupported";
+            else if (!File.Exists(path)) error = "missing";
+            else handle = (_env ?? throw new InvalidOperationException("The engine is not ready.")).CreateWebFileSystemFileHandle(path, CoreWebView2FileSystemHandlePermission.ReadWrite);
+        }
+        catch (Exception ex) { Program.Log("File access renewal: " + ex.Message); error = "failed"; }
+        var json = JsonSerializer.Serialize(new { type = "file-access", id, ok = error is null, path = error is null ? path : null, error });
+        if (handle is null) _web.CoreWebView2?.PostWebMessageAsJson(json);
+        else _web.CoreWebView2?.PostWebMessageAsJson(json, new List<object> { handle });
+    }
+
+    /// <summary>
+    /// The page's Open and Save windows, shown as Windows' own so every chosen file comes back with its
+    /// full path as well as its handle. Shown once this message has been handled, on the window's own
+    /// thread and owned by it. One at a time; cancelling is reported as such.
+    /// </summary>
+    private void RequestFilePicker(CoreWebView2WebMessageReceivedEventArgs e, JsonElement message)
+    {
+        if (!e.Source.StartsWith($"https://{Host}/", StringComparison.OrdinalIgnoreCase)) return;
+        var id = message.GetProperty("id").GetInt32();
+        if (_pickerOpen)
+        {
+            ReplyFilePicker(id, null, "busy");
+            return;
+        }
+        _pickerOpen = true;
+        try
+        {
+            BeginInvoke(() =>
+            {
+                try { ShowFilePicker(id, message); }
+                finally { _pickerOpen = false; }
+            });
+        }
+        catch (Exception ex)
+        {
+            _pickerOpen = false;
+            Program.Log("File window: " + ex.Message);
+            ReplyFilePicker(id, null, "failed");
+        }
+    }
+
+    private void ShowFilePicker(int id, JsonElement message)
+    {
+        string[]? paths = null;
+        string? error = null;
+        try
+        {
+            var save = message.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String && k.GetString() == "save";
+            using FileDialog dialog = save
+                ? new SaveFileDialog { OverwritePrompt = true, AddExtension = true }
+                : new OpenFileDialog { CheckFileExists = true, Multiselect = message.TryGetProperty("multiple", out var m) && m.ValueKind == JsonValueKind.True };
+            dialog.CheckPathExists = true;
+            dialog.ValidateNames = true;
+            dialog.RestoreDirectory = true;
+            var (filter, firstExtension) = PickerFilter(message);
+            try { dialog.Filter = filter; }
+            catch (ArgumentException) { dialog.Filter = "All files (*.*)|*.*"; }
+            if (save && firstExtension is not null) dialog.DefaultExt = firstExtension[1..];
+            if (PickerFileName(message) is { } name) dialog.FileName = name;
+            if (dialog.ShowDialog(this) != DialogResult.OK) error = "cancelled";
+            else
+            {
+                paths = save ? new[] { dialog.FileName } : ((OpenFileDialog)dialog).FileNames;
+                if (paths.Length == 0 || paths.Any(p => !Path.IsPathFullyQualified(p))) error = "failed";
+            }
+        }
+        catch (Exception ex)
+        {
+            Program.Log("File window: " + ex.Message);
+            error = "failed";
+        }
+        ReplyFilePicker(id, error is null ? paths : null, error);
+    }
+
+    private void ReplyFilePicker(int id, string[]? paths, string? error)
+    {
+        var handles = new List<object>();
+        try
+        {
+            if (paths is not null)
+            {
+                var env = _env ?? throw new InvalidOperationException("The engine is not ready.");
+                // A file chosen in the Save window may not exist yet; its handle is still valid.
+                foreach (var p in paths)
+                {
+                    handles.Add(env.CreateWebFileSystemFileHandle(p, CoreWebView2FileSystemHandlePermission.ReadWrite));
+                    RememberKnownFile(p);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Program.Log("File window handles: " + ex.Message);
+            error = "failed";
+            paths = null;
+            handles.Clear();
+        }
+        try
+        {
+            var json = JsonSerializer.Serialize(new { type = "file-picker", id, ok = error is null, paths, error });
+            if (handles.Count == 0) _web.CoreWebView2?.PostWebMessageAsJson(json);
+            else _web.CoreWebView2?.PostWebMessageAsJson(json, handles);
+        }
+        catch (Exception ex)
+        {
+            Program.Log("File window reply: " + ex.Message);
+        }
+    }
+
+    /// <summary>The page's file types as a Windows filter. Anything malformed is left out, never passed on.</summary>
+    private static (string Filter, string? FirstExtension) PickerFilter(JsonElement message)
+    {
+        var parts = new List<string>();
+        string? first = null;
+        if (message.TryGetProperty("types", out var types) && types.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var t in types.EnumerateArray().Take(20))
+            {
+                if (t.ValueKind != JsonValueKind.Object || !t.TryGetProperty("extensions", out var list) || list.ValueKind != JsonValueKind.Array) continue;
+                var extensions = list.EnumerateArray()
+                    .Where(x => x.ValueKind == JsonValueKind.String)
+                    .Select(x => x.GetString() ?? "")
+                    .Where(IsExtension)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(30)
+                    .ToList();
+                if (extensions.Count == 0) continue;
+                first ??= extensions[0];
+                var patterns = string.Join(";", extensions.Select(x => "*" + x));
+                var label = t.TryGetProperty("description", out var d) && d.ValueKind == JsonValueKind.String
+                    ? new string((d.GetString() ?? "").Where(c => c != '|' && !char.IsControl(c)).Take(100).ToArray()).Trim()
+                    : "";
+                parts.Add($"{(label.Length > 0 ? label : "Files")} ({patterns})|{patterns}");
+            }
+        }
+        var acceptAll = !(message.TryGetProperty("acceptAll", out var a) && a.ValueKind == JsonValueKind.False);
+        if (acceptAll || parts.Count == 0) parts.Add("All files (*.*)|*.*");
+        return (string.Join("|", parts), first);
+    }
+
+    private static bool IsExtension(string x) =>
+        x.Length is >= 2 and <= 17 && x[0] == '.' && x.Skip(1).All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '+' or '-');
+
+    /// <summary>The suggested name, reduced to a plain file name; nothing that could point elsewhere.</summary>
+    private static string? PickerFileName(JsonElement message)
+    {
+        if (!message.TryGetProperty("suggestedName", out var s) || s.ValueKind != JsonValueKind.String) return null;
+        var invalid = Path.GetInvalidFileNameChars();
+        var name = new string((s.GetString() ?? "").Where(c => !invalid.Contains(c)).Take(200).ToArray()).Trim().TrimEnd('.', ' ');
+        return name.Length > 0 ? name : null;
     }
 
     /// <summary>Every font family Windows has for this user, for the font picker.</summary>
@@ -529,9 +830,11 @@ internal sealed partial class MainForm : Form
             var path = _pendingFiles.Dequeue();
             try
             {
-                // A real file handle, so the page reads only what it needs and can save back.
+                // A real file handle, so the page reads only what it needs and can save back, and its
+                // path, which the page cannot learn from a handle.
                 var handle = _env.CreateWebFileSystemFileHandle(path, CoreWebView2FileSystemHandlePermission.ReadWrite);
-                _web.CoreWebView2.PostWebMessageAsJson("{\"type\":\"open\"}", new List<object> { handle });
+                RememberKnownFile(path);
+                _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "open", path }), new List<object> { handle });
             }
             catch (Exception e)
             {
@@ -540,11 +843,64 @@ internal sealed partial class MainForm : Form
         }
     }
 
+    /// <summary>A file opened from Explorer while PDFy was already running: a new tab, window to the front.</summary>
+    private void OpenFromOtherLaunch(string[] paths)
+    {
+        foreach (var p in paths)
+        {
+            if (Path.IsPathFullyQualified(p) && File.Exists(p)) _arriving.Add(Path.GetFullPath(p));
+        }
+        if (IsIconic(Handle)) ShowWindow(Handle, 9 /* SW_RESTORE: back to maximised if it was */);
+        SetForegroundWindow(Handle);
+        Activate();
+        // Several files opened together in Explorer arrive one launch each, in no set order. Wait a
+        // moment for the rest, then open them A–Z.
+        _arrivalTimer.Stop();
+        _arrivalTimer.Start();
+    }
+
+    private readonly List<string> _arriving = new();
+    private System.Windows.Forms.Timer? _arrivalTimerField;
+    private System.Windows.Forms.Timer _arrivalTimer => _arrivalTimerField ??= MakeArrivalTimer();
+
+    private System.Windows.Forms.Timer MakeArrivalTimer()
+    {
+        var t = new System.Windows.Forms.Timer { Interval = 350 };
+        t.Tick += (_, _) =>
+        {
+            t.Stop();
+            _arriving.Sort(ByExplorerName);
+            foreach (var p in _arriving.Distinct(StringComparer.OrdinalIgnoreCase)) _pendingFiles.Enqueue(p);
+            _arriving.Clear();
+            SendPendingFiles();
+        };
+        return t;
+    }
+
+    /// <summary>Explorer's own name order: "Part 2" before "Part 10".</summary>
+    internal static int ByExplorerName(string a, string b) => StrCmpLogicalW(Path.GetFileName(a), Path.GetFileName(b));
+
+    [System.Runtime.InteropServices.DllImport("shlwapi.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int StrCmpLogicalW(string a, string b);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hwnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hwnd, int command);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hwnd);
+
     /// <summary>Lets the page ask about unsaved work before the window really closes.</summary>
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
         SaveBounds();
-        if (_closeApproved || !_pageReady || _web.CoreWebView2 is null) return;
+        if (_closeApproved || !_pageReady || _web.CoreWebView2 is null)
+        {
+            SingleInstance.StopAccepting();
+            return;
+        }
         e.Cancel = true;
         try { _web.CoreWebView2.PostWebMessageAsJson("{\"type\":\"close-request\"}"); }
         catch { _closeApproved = true; e.Cancel = false; }
@@ -552,8 +908,9 @@ internal sealed partial class MainForm : Form
 
     private void Fatal(string message)
     {
+        Program.Log("Shown to the user: " + message.ReplaceLineEndings(" "));
         _pageReady = false;
-        MessageBox.Show(this, message, "PDFy", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        MessageBox.Show(this, message, "Meletiq PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     private sealed record WindowPlace(int X, int Y, int W, int H, bool Max);

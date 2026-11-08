@@ -14,12 +14,13 @@ import * as detect from './features/detect';
 import * as ocr from './features/ocr';
 import * as batch from './features/batch';
 import { onHostMessage } from './features/office';
+import { installNativePickers, onLocationMessage, rememberLocation } from './features/location';
 import * as office from './features/office';
 import * as sign from './features/sign';
 import * as docmodel from './features/docmodel';
 import * as docxEditor from './features/docx-editor';
 import { unzipSync, strFromU8 } from 'fflate';
-import { reportError, toast } from './ui/dom';
+import { logError, reportError, toast } from './ui/dom';
 import { applyUiTheme, currentUiTheme } from './ui/themes';
 import { onFontMessage, restoreAddedFonts, installedFonts, addFontFiles } from './study/fonts';
 import { ensureRichCss } from './study/mdthemes';
@@ -33,6 +34,7 @@ import { GUIDE_VERSION } from './ui/guide';
 window.addEventListener('error', e => {
   if (e.message?.includes('ResizeObserver')) return;
   console.error('Uncaught', e.error ?? e.message);
+  logError(`Uncaught (${e.filename?.split('/').pop() ?? '?'}:${e.lineno})`, e.error ?? new Error(e.message));
   toast(`Something went wrong, but your work is safe: ${e.message}`, 'error');
 });
 window.addEventListener('unhandledrejection', e => {
@@ -46,16 +48,25 @@ applyUiTheme(currentUiTheme());
 
 ensureRichCss();
 void restoreAddedFonts();
+// In the Windows app, Open and Save use Windows' own file windows, so each file's path is known.
+installNativePickers();
 const app = new App(document.getElementById('app')!);
 
 // The Windows app hands over files opened with "Open with" or passed on the command line.
+let openQueue: Promise<unknown> = Promise.resolve();
 window.chrome?.webview?.addEventListener('message', e => {
   onHostMessage(e.data as Parameters<typeof onHostMessage>[0]);
   onFontMessage(e.data as Parameters<typeof onFontMessage>[0]);
   onPageMessage(e.data as Parameters<typeof onPageMessage>[0]);
-  const handle = e.additionalObjects?.[0] as FileSystemFileHandle | undefined;
-  if (handle) app.openHandle(handle).catch(err => reportError('Opening', err));
-  if ((e.data as { type?: string })?.type === 'close-request') {
+  onLocationMessage(e.data, e.additionalObjects);
+  const type = (e.data as { type?: string } | null)?.type;
+  // Only "Open with" hands over a file to open; a located file's fresh handle goes to whoever asked.
+  const handle = type === 'open' ? e.additionalObjects?.[0] as FileSystemFileHandle | undefined : undefined;
+  const path = (e.data as { path?: unknown } | null)?.path;
+  if (handle && typeof path === 'string') void rememberLocation(handle, path);
+  // One after another, so tabs keep the order the files were handed over in.
+  if (handle) openQueue = openQueue.then(() => app.openHandle(handle)).catch(err => reportError('Opening', err));
+  if (type === 'close-request') {
     app.closeAllForExit().then(ok => { if (ok) window.chrome?.webview?.postMessage({ type: 'close-ok' }); }).catch(err => reportError('Closing', err));
   }
 });
@@ -63,5 +74,6 @@ window.chrome?.webview?.postMessage({ type: 'ready' });
 
 // Used by the automated tests.
 if (location.hostname === 'localhost' || new URLSearchParams(location.search).has('test')) {
+  Object.assign(window, { __fileLocations: { onLocationMessage, installNativePickers, rememberLocation } });
   Object.assign(window, { __pdfy: app, __api: { ...jobs, ...engine, ...recovery, ...images, ...decor, ...convert, ...compare, ...xfdf, ...search, ...decoders, ...detect, ...batch, ...ocr, ...office, ...sign, ...docmodel, ...docxEditor, ...study, ...library, makePaperPdf, GUIDE_VERSION, installedFonts, addFontFiles, applyUiTheme, unzipSync, strFromU8, Session } });
 }

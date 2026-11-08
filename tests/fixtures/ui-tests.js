@@ -79,7 +79,7 @@ async function fresh(name = 'normal.pdf') {
   await wait(350);
   app.viewer.setFit('page');
   await settle();
-  app.tools.setTool('select');
+  app.tools.setTool('hand');
   return s;
 }
 
@@ -117,7 +117,7 @@ await test('Rectangle: draw, then move, resize, recolour, delete', async () => {
   await drag(...screen(p, 100, 400), ...screen(p, 300, 300));
   let a = p.annots.find(z => z.kind === 'rect');
   ok(a, 'made');
-  eq(app.tools.tool, 'select', 'goes back to Select');
+  eq(app.tools.tool, 'hand', 'goes back to Pan');
   eq(app.viewer.selection?.annotId, a.id, 'selected');
   // Move: drag the shape.
   const before = [...a.rect];
@@ -441,7 +441,7 @@ await test('Hand tool drags the page', async () => {
   const r = sc.getBoundingClientRect();
   await drag(r.left + 300, r.top + 300, r.left + 300, r.top + 150);
   ok(sc.scrollTop > before + 100, `scrolled ${before} to ${sc.scrollTop}`);
-  app.tools.setTool('select');
+  app.tools.setTool('hand');
 });
 
 await test('Thumbnails: click jumps, drag reorders, panel buttons work', async () => {
@@ -524,7 +524,7 @@ await test('Tools on rotated pages land where the mouse is', async () => {
     const t = p.annots.find(z => z.kind === 'text');
     ok(t, 'text box');
     eq(t.angle, p.baseRotate, 'turned to stay upright');
-    app.tools.setTool('select');
+    app.tools.setTool('hand');
     // Moving works in screen direction, even though the page is rotated.
     const rectNow = p.annots.find(z => z.kind === 'rect');
     const before = screen(p, rectNow.rect[0], rectNow.rect[1]);
@@ -580,7 +580,7 @@ await test('Keyboard: Xodo keys: Escape, P, H, I, Ctrl+F, Ctrl+D', async () => {
   const s = await fresh();
   await tool('pen');
   await key('Escape', 'Escape', 27);
-  eq(app.tools.tool, 'select', 'Escape returns to Select');
+  eq(app.tools.tool, 'hand', 'Escape returns to Pan');
   await key('p', 'KeyP', 80, 0, 'p');
   eq(app.tools.tool, 'hand', 'P is Pan, as in Xodo');
   await key('h', 'KeyH', 72, 0, 'h');
@@ -589,7 +589,7 @@ await test('Keyboard: Xodo keys: Escape, P, H, I, Ctrl+F, Ctrl+D', async () => {
   await key('i', 'KeyI', 73, 0, 'i');
   eq(app.tools.tool, 'pen', 'I is Ink');
   await key('Escape', 'Escape', 27);
-  eq(app.tools.tool, 'select', 'Escape again');
+  eq(app.tools.tool, 'hand', 'Escape again');
   await key('f', 'KeyF', 70, 2);
   await wait(100);
   eq(app.panels.active, 'search', 'Ctrl+F opens search');
@@ -741,7 +741,7 @@ await test('Right-click menus, help and navigation keys', async () => {
   eq(app.tools.tool, 'hand', 'Space holds the hand');
   await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
   await wait(30);
-  eq(app.tools.tool, 'select', 'releasing Space goes back');
+  eq(app.tools.tool, 'hand', 'releasing Space goes back');
 });
 
 await test('Quick bar over selected text', async () => {
@@ -774,11 +774,13 @@ await test('Several objects: select, move, align, delete together', async () => 
     { ...base, id: 'm3', rect: [400, 300, 450, 340] },
   ]);
   await settle();
+  // Pan selects objects and page text.
+  app.tools.setTool('hand');
   // Ctrl+click builds a selection.
   await click(...screen(p, 150, 530));
   await click(...screen(p, 200, 425), { modifiers: 2 });
   eq(app.viewer.extra.size, 1, 'two selected');
-  ok(document.querySelector('.style-bar').textContent.includes('2 objects'), 'says so');
+  ok(document.querySelector('.style-bar').textContent.includes('2 selected'), 'says so');
   // Move together.
   const r1 = p.annots.find(a => a.id === 'm1').rect[0], r2 = p.annots.find(a => a.id === 'm2').rect[0];
   await drag(...screen(p, 150, 530), ...screen(p, 180, 530));
@@ -787,7 +789,8 @@ await test('Several objects: select, move, align, delete together', async () => 
   await key('z', 'KeyZ', 90, 2);
   ok(Math.abs(p.annots.find(a => a.id === 'm1').rect[0] - r1) < 0.01 && Math.abs(p.annots.find(a => a.id === 'm2').rect[0] - r2) < 0.01, 'one undo moves both back');
   // Align.
-  [...document.querySelectorAll('.style-bar .btn')].find(b => b.textContent === 'Left').click();
+  [...document.querySelectorAll('.style-bar .btn')].find(b => b.textContent === 'Align').click();
+  [...document.querySelectorAll('.ctx-menu button')].find(b => b.textContent.trim() === 'Left').click();
   await wait(30);
   ok(Math.abs(p.annots.find(a => a.id === 'm1').rect[0] - p.annots.find(a => a.id === 'm2').rect[0]) < 3, 'aligned');
   // Shift+drag box picks all three.

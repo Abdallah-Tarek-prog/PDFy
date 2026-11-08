@@ -108,7 +108,7 @@ export function makePaperPdf(opts: { title: string; paper: Paper; w: number; h: 
   objs[2] = `<< /Type /Pages /Kids [${pageIds.map(i => `${i} 0 R`).join(' ')}] /Count ${count} >>`;
   const body = opts.paper === 'blank' ? '' : streamFor(opts.paper, opts.w, opts.h);
   objs[3] = `<< /Length ${body.length} >>\nstream\n${body}\nendstream`;
-  objs[4] = `<< /Title ${pdfText(opts.title)} /Producer (PDFy) /CreationDate (D:${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}Z) >>`;
+  objs[4] = `<< /Title ${pdfText(opts.title)} /Producer (Meletiq PDF) /CreationDate (D:${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}Z) >>`;
   for (const id of pageIds) objs[id] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(opts.w)} ${n(opts.h)}] /Contents 3 0 R /Resources << >> >>`;
   let out = '%PDF-1.7\n%âãÏÓ\n';
   const offsets: number[] = [];

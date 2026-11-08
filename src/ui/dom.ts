@@ -63,7 +63,26 @@ export function safe<A extends unknown[]>(fn: (...a: A) => unknown, what = 'That
 
 export function reportError(what: string, err: unknown) {
   console.error(what, err);
+  logError(what, err);
   toast(`${what} failed: ${(err as Error)?.message ?? err}`, 'error');
+}
+
+// Errors go to the Windows app's crash log (pdfy.log). At most 20 a minute, repeats counted not
+// re-sent, and nothing is kept here but the last message and two counters.
+let logWindowStart = 0, logCount = 0, lastLogged = '', repeats = 0;
+export function logError(what: string, err: unknown) {
+  const view = (window as { chrome?: { webview?: { postMessage(m: unknown): void } } }).chrome?.webview;
+  if (!view) return;
+  const e = err as Error | undefined;
+  const text = `${what}: ${e?.name ?? 'Error'}: ${e?.message ?? String(err)}`;
+  if (text === lastLogged) { repeats++; return; }
+  const now = Date.now();
+  if (now - logWindowStart > 60_000) { logWindowStart = now; logCount = 0; }
+  if (++logCount > 20) return;
+  const stack = (e?.stack ?? '').split('\n').slice(1, 6).map(l => l.trim()).join(' ← ');
+  const before = repeats ? ` (previous error repeated ${repeats} more times)` : '';
+  lastLogged = text; repeats = 0;
+  try { view.postMessage({ type: 'log', text: (text + (stack ? ` @ ${stack}` : '') + before).slice(0, 3000) }); } catch { /* Logging must never fail. */ }
 }
 
 let toastHost: HTMLElement | null = null;

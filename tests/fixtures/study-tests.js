@@ -263,6 +263,8 @@ await test('Dictionary: with lookup on, selecting a word on the page opens it', 
   const s = await app.openPdfBlob(await fx('normal.pdf'), 'normal.pdf');
   await settle();
   await until(() => document.querySelector('.textLayer span'), 6000, 'page text');
+  // Pan handles page text selection as well as navigation.
+  app.tools.setTool('hand');
   app.study.toggleLookup(true);
   const span = [...document.querySelectorAll('.textLayer span')].find(x => /\b[A-Za-z]{4,}\b/.test(x.textContent));
   const m = /\b[A-Za-z]{4,}\b/.exec(span.textContent);
@@ -294,6 +296,7 @@ await test('Read picture: words in a pasted dark screenshot become selectable te
   ok(words.length > 20, `${words.length} words read`);
   ok(/convert|screenshot|colours|gemini/.test(text), `expected words found in: ${text.slice(0, 120)}`);
   const v = app.viewer.views.get(page.id);
+  app.tools.setTool('hand');
   A.showWordLayer(v, words, shot);
   const spot = [...document.querySelectorAll('.read-layer span')].find(b => /^[A-Za-z]{5,}\s?$/.test(b.textContent));
   ok(spot, 'a word laid over the picture');
@@ -659,7 +662,7 @@ await test('Screens: study tools, for checking by eye', async () => {
   await wait(400);
   await window.__shot('36-font-picker');
   document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-  app.tools.setTool('select');
+  app.tools.setTool('hand');
   await closeAll();
   await paste(await mockGemini());
   await until(() => app.session?.pages[0]?.annots.some(a => a.kind === 'image'), 6000, 'the pasted image');

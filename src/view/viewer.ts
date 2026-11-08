@@ -18,6 +18,7 @@ export type LayoutMode = 'continuous' | 'facing' | 'single';
 export type FitMode = 'width' | 'page' | 'none';
 
 interface Row { y: number; h: number; w: number; pages: { index: number; x: number; w: number; h: number }[] }
+interface TabViewState { page: number; top: number; left: number; scale: number; fit: FitMode; layout: LayoutMode }
 
 export class PageView {
   el: HTMLElement;
@@ -101,6 +102,7 @@ export class Viewer {
   private off: (() => void) | null = null;
   private ro: ResizeObserver;
   private sizeLoader = 0;
+  private tabStates = new WeakMap<Session, TabViewState>();
 
   constructor(host: HTMLElement) {
     this.scroller = host;
@@ -113,16 +115,29 @@ export class Viewer {
   }
 
   attach(session: Session | null) {
+    if (this.session) {
+      this.tabStates.set(this.session, {
+        page: this.current, top: this.scroller.scrollTop, left: this.scroller.scrollLeft,
+        scale: this.scale, fit: this.fit, layout: this.layout,
+      });
+    }
+    const saved = session ? this.tabStates.get(session) : undefined;
     this.off?.();
     this.off = null;
     this.clearViews();
     this.session = session;
-    this.current = 0;
+    this.current = saved && session ? Math.max(0, Math.min(saved.page, session.pages.length - 1)) : 0;
+    // Rows belong to the previous document; never use them as the new document's scroll anchor.
+    this.rows = [];
+    this.rowOf = [];
     this.selection = null;
     this.scroller.scrollTop = 0;
+    this.scroller.scrollLeft = 0;
     if (session) {
+      if (saved) { this.scale = saved.scale; this.fit = saved.fit; this.layout = saved.layout; }
       this.off = session.on(c => this.onChange(c));
       this.relayout(true);
+      if (saved) { this.scroller.scrollTop = saved.top; this.scroller.scrollLeft = saved.left; }
       this.startSizeLoader();
     } else {
       this.rows = [];
@@ -293,17 +308,15 @@ export class Viewer {
     const session = this.session!;
     const index = session.pages.indexOf(v.page);
     if (index < 0) return;
-    const row = this.rows[this.rowOf[index]];
-    const item = row.pages.find(p => p.index === index)!;
-    const centred = Math.max(GAP, (Math.max(this.scroller.clientWidth, row.w + GAP * 2) - row.w) / 2);
+    const box = this.pageBox(index);
     v.vp = viewportFor(v.page, this.scale);
     const st = v.el.style;
-    st.left = `${centred + item.x}px`;
-    st.top = `${row.y + (row.h - item.h) / 2}px`;
-    st.width = `${item.w}px`;
-    st.height = `${item.h}px`;
-    v.svg.setAttribute('width', String(item.w));
-    v.svg.setAttribute('height', String(item.h));
+    st.left = `${box.x}px`;
+    st.top = `${box.y}px`;
+    st.width = `${box.w}px`;
+    st.height = `${box.h}px`;
+    v.svg.setAttribute('width', String(box.w));
+    v.svg.setAttribute('height', String(box.h));
     v.annotsG.setAttribute('transform', `matrix(${v.vp.m.join(' ')})`);
     v.textHost.style.setProperty('--total-scale-factor', String(this.scale));
     this.positionTextLayer(v);
@@ -311,6 +324,29 @@ export class Viewer {
     this.hooks.drawMatches?.(v);
     if (v.widgetsLoaded) buildWidgets(this, v);
     buildOwnFields(this, v);
+  }
+
+  /** Where a page sits in the scroll area. Narrow rows are centred in the window. */
+  private pageBox(index: number): { x: number; y: number; w: number; h: number } {
+    const row = this.rows[this.rowOf[index]];
+    const item = row.pages.find(p => p.index === index)!;
+    const centred = Math.max(GAP, (Math.max(this.scroller.clientWidth, row.w + GAP * 2) - row.w) / 2);
+    return { x: centred + item.x, y: row.y + (row.h - item.h) / 2, w: item.w, h: item.h };
+  }
+
+  /** The page under a point of the scroll area, and where on it the point is, from 0 to 1. */
+  private pageSpot(x: number, y: number): { index: number; fx: number; fy: number } | null {
+    if (!this.rows.length) return null;
+    const row = this.rows[this.layout === 'single' ? this.rowOf[this.current] : this.findRow(y)];
+    if (!row) return null;
+    let best = row.pages[0].index, bestD = Infinity;
+    for (const p of row.pages) {
+      const b = this.pageBox(p.index);
+      const d = Math.max(b.x - x, 0, x - (b.x + b.w));
+      if (d < bestD) { bestD = d; best = p.index; }
+    }
+    const b = this.pageBox(best);
+    return { index: best, fx: (x - b.x) / (b.w || 1), fy: (y - b.y) / (b.h || 1) };
   }
 
   /** Text and widgets are laid out against the full page, so a cropped page shifts them. */
@@ -572,14 +608,25 @@ export class Viewer {
     for (const v of views) v.needsRender = false;
   }
 
+  /**
+   * Zooms keeping the same spot of the page under the pointer. The spot is held on its page,
+   * because the gaps between pages and the centring of narrow pages do not grow with zoom.
+   */
   zoomAt(next: number, clientX: number, clientY: number) {
     const host = this.scroller.getBoundingClientRect();
-    const px = clientX - host.left + this.scroller.scrollLeft;
-    const py = clientY - host.top + this.scroller.scrollTop;
+    const sx = clientX - host.left, sy = clientY - host.top;
+    const px = sx + this.scroller.scrollLeft, py = sy + this.scroller.scrollTop;
+    const spot = this.pageSpot(px, py);
     const k = Math.max(0.1, Math.min(8, next)) / this.scale;
     this.setScale(next);
-    this.scroller.scrollLeft = px * k - (clientX - host.left);
-    this.scroller.scrollTop = py * k - (clientY - host.top);
+    if (spot && this.rows[this.rowOf[spot.index]]) {
+      const b = this.pageBox(spot.index);
+      this.scroller.scrollLeft = b.x + spot.fx * b.w - sx;
+      this.scroller.scrollTop = b.y + spot.fy * b.h - sy;
+    } else {
+      this.scroller.scrollLeft = px * k - sx;
+      this.scroller.scrollTop = py * k - sy;
+    }
   }
 
   goTo(index: number, offsetTop = 0) {

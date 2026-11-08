@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const exe = join(root, 'app', 'PDFy.exe');
+const exe = process.env.PDFY_EXE ?? join(root, 'app', 'PDFy.exe');
 const PORT = 9333;
 const results = [];
 const wait = ms => new Promise(r => setTimeout(r, ms));

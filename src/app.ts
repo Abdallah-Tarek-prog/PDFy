@@ -2,9 +2,9 @@
 
 import { zipSync, type Zippable } from 'fflate';
 import { openPdf, PdfOpenError } from './core/engine';
-import { annotBounds, remapAnnot } from './core/geometry';
+import { annotBounds, noteRect, remapAnnot } from './core/geometry';
 import { buildFile, inspectFile } from './core/jobs';
-import { uid, type Annot, type BuildOptions, type ImageAsset, type PageRef } from './core/model';
+import { toPdf, uid, type Annot, type BuildOptions, type ImageAsset, type PageRef } from './core/model';
 import { Session } from './core/session';
 import { compareFiles, diffWords } from './features/compare';
 import { exportDocx, exportHtml, exportImages, exportPptx, exportText, exportXlsx, linesOf, toParagraphs, withSavedPdf, type Progress } from './features/convert';
@@ -20,6 +20,7 @@ import { runOcr } from './features/ocr';
 import { printPdf } from './features/print';
 import { addRecent, dropJournal, listJournals, loadAsset, rememberHandle, restoreAnnots, saveJournal, type Journal } from './features/recovery';
 import { exportXfdf, importXfdf } from './features/xfdf';
+import { confirmSameFile, locateFile, locateHandle, locationProblem, readableHandle } from './features/location';
 import { THEME_STYLES } from './theme/presets';
 import { alertDialog, askPassword, cameraDialog, confirmDialog, formDialog, openDialog, progressDialog, signatureDialog, type Field, type ProgressHandle } from './ui/dialogs';
 import { $, baseName, clear, downloadBlob, h, icon, parseRanges, pickFiles, reportError, safe, toast } from './ui/dom';
@@ -27,6 +28,8 @@ import { ImageBar, pasteMode } from './ui/imagebar';
 import { getSettings, lastPage, onSettings, rememberPage, saveSettings } from './core/settings';
 import { closeMenu, showMenu, type MenuItem } from './ui/menu';
 import { Study } from './study/ui';
+import { fitMarkdown } from './study/box';
+import { mathBoxSize, texToSvg } from './study/math';
 import { closeDictionary } from './study/dictpopup';
 import { closeWordLayer, reattachWordLayer } from './study/readpicture';
 import { colourButton } from './ui/colorpicker';
@@ -36,13 +39,13 @@ import { Panels, type PanelId } from './ui/panels';
 import { closeDropdown, showDropdown, ToolRow, windowButtons, type ChromeHooks, type Cmd } from './ui/chrome';
 import { createDocumentDialog, insertPageDialog, makePaperPdf } from './ui/createdoc';
 import { PageEditor } from './ui/pageeditor';
-import { Home } from './ui/home';
+import { Home, type HomeFile } from './ui/home';
 import { openSettings, type SettingsSection } from './ui/settings';
 import { maybeShowGuide, showGuide } from './ui/guide';
-import { addClosed, listClosed, removeClosed } from './features/library';
+import { addClosed, listClosed, listCollections, listItems, moveCollectionFile, rememberTabOrder, removeClosed, updateCollection, type ClosedFile, type Collection } from './features/library';
 import { keyLabel, match, shortcutsDialog } from './ui/shortcuts';
 import { applyUiTheme, currentUiTheme, DEFAULT_DARK, DEFAULT_LIGHT, UI_THEMES } from './ui/themes';
-import { Tools, type Tool } from './view/tools';
+import { isReadingTool, REST_TOOL, Tools, type Tool } from './view/tools';
 import { installGestures } from './view/gestures';
 import { toScreen, viewportFor } from './core/model';
 import { Viewer, type PageView } from './view/viewer';
@@ -50,18 +53,80 @@ import { Viewer, type PageView } from './view/viewer';
 
 const COLOURS = ['#111111', '#d92d20', '#f79009', '#ffd400', '#0b8a4f', '#1a56db', '#7a5af8', '#ffffff'];
 const STAMPS: [string, string][] = [['APPROVED', '#0b8a4f'], ['REJECTED', '#d92d20'], ['DRAFT', '#1a56db'], ['FINAL', '#0b8a4f'], ['CONFIDENTIAL', '#d92d20'], ['REVIEWED', '#7a5af8'], ['VOID', '#d92d20'], ['COPY', '#475467'], ['FOR COMMENT', '#b54708']];
-const PDF_TYPES: FilePickerType[] = [{ description: 'PDF document', accept: { 'application/pdf': ['.pdf'] } }];
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const PDF_TYPES: FilePickerType[] =[{ description: 'PDF document', accept: { 'application/pdf': ['.pdf'] } }];
+interface PageSpot { session: Session; page: PageRef; point: [number, number] }
+
+function supportsStyle(a: Annot, key: string): boolean {
+  if (['whiteout', 'redact', 'link'].includes(a.kind)) return false;
+  const text = (a.kind === 'text' || a.kind === 'callout') && !a.markdown;
+  switch (key) {
+    case 'color': return a.kind !== 'image';
+    case 'opacity': return true;
+    case 'width': return !['highlight', 'text', 'note', 'stamp', 'image', 'math'].includes(a.kind);
+    case 'fill': return ['rect', 'ellipse', 'polygon', 'cloud', 'text', 'callout'].includes(a.kind) && !a.markdown;
+    case 'fontSize': return text || !!a.markdown || a.kind === 'math';
+    case 'font': case 'fontName': case 'bold': case 'italic': case 'textColor': return text;
+    case 'mdTheme': return !!a.markdown;
+    default: return false;
+  }
+}
+
+function styleTool(a: Annot): Tool | null {
+  if (a.markdown) return 'markdown';
+  if (a.kind === 'ink') return a.marker ? 'marker' : 'pen';
+  if (a.kind === 'measure') return a.measureType === 'area' ? 'area' : a.measureType === 'perimeter' ? 'perimeter' : 'distance';
+  return ['image', 'math', 'attachment', 'whiteout', 'redact', 'link'].includes(a.kind) ? null : a.kind as Tool;
+}
+const TOOL_HINTS: Partial<Record<Tool, string>> = {
+  hand: 'Drag over text to select it, or blank space to pan. Hold Space to pan anywhere; Ctrl+drag selects objects.',
+  snip: 'Drag over any area of the page. It is converted to the opposite theme.',
+  redact: 'Drag over what should go. Nothing is removed until you press Apply redactions.',
+  crop: 'Drag the area to keep.',
+  'cert-box': 'Drag where the signature box should appear.',
+  'crop-image': 'Drag over the part of the image to keep.',
+  'edit-text': 'Click a line of text. Press Enter when done. The old text stays underneath unless redacted.',
+  eraser: 'Drag over pen or marker strokes to remove them.',
+  'read-picture': 'Drag over an image, a scan or any part of the page. Each word found can then be clicked.',
+  markdown: 'Click on the page, then type. It turns into formatted notes when you click away.',
+  polygon: 'Click each corner. Double-click or press Enter to finish.',
+  'field-text': 'Drag a box where the text field goes, then name it. Press Escape to go back to Read and type in it.',
+  'field-check': 'Drag a small box for the tick box, then name it. In Read, click it to tick.',
+  'field-radio': 'Drag a small box for this choice. Give choices of one question the same name.',
+  'field-dropdown': 'Drag a box, then type the choices, one per line. In Read, click it to choose.',
+  'field-list': 'Drag a box, then type the choices, one per line. In Read, several can be chosen.',
+  'field-signature': 'Drag where the signature should go. Others can sign there in their PDF app.',
+  polyline: 'Click each point. Double-click or press Enter to finish.',
+  cloud: 'Click each corner. Double-click or press Enter to finish.',
+  perimeter: 'Click each point. Double-click or press Enter to finish.',
+  area: 'Click each corner. Double-click or press Enter to finish.',
+};
 
 export class App {
   sessions: Session[] = [];
   session: Session | null = null;
+  private nextTabOrder = 0;
+  private orderWrites: Promise<unknown> = Promise.resolve();
+  private tabGroups = new Map<string, Collection>();
+  private collectionRun = 0;
+  private ungroupedTabs = new WeakSet<Session>();
+  private saves = new Map<Session, { promise: Promise<boolean>; again: boolean; saveAs: boolean }>();
+  private closing = new Map<Session, Promise<void>>();
+  private reloads = new Map<Session, Promise<void>>();
+  private styleChanges: Promise<void> = Promise.resolve();
   viewer!: Viewer;
   tools!: Tools;
   panels!: Panels;
   pageEditor!: PageEditor;
   imageBar!: ImageBar;
 
-  private tabsEl = h('div', { class: 'doc-tabs', role: 'tablist' });
+  private tabsEl = h('div', {
+    class: 'doc-tabs', role: 'tablist',
+    ondragover: (e: DragEvent) => this.dragTabOver(e),
+    ondrop: (e: DragEvent) => this.dropTab(e),
+    ondragleave: (e: DragEvent) => { if (!this.tabsEl.contains(e.relatedTarget as Node | null)) this.clearTabDrop(); },
+  });
+  private draggedTab: Session | null = null;
   private styleBar = h('div', { class: 'style-bar', 'aria-label': 'Style' });
   private startEl = h('div', { class: 'start' });
   home!: Home;
@@ -75,7 +140,6 @@ export class App {
   private memEl = h('span', { title: 'Memory the page is using right now' });
   private statusMsg = h('div', { class: 'status-pill', role: 'status', hidden: true });
   /** A short tip for the current tool, at the bottom, so it never covers the page. */
-  private hintEl = h('div', { class: 'status-pill hint', role: 'note', hidden: true });
   private titleText = h('div', { class: 'title-text' });
   /** The + at the end of the document tabs: open a file or create a new document. */
   private addBtn: HTMLButtonElement = h('button', {
@@ -88,14 +152,20 @@ export class App {
   private chromeHooks: ChromeHooks = { hasDoc: () => !!this.session, keyFor: id => keyLabel(id) };
   private row = new ToolRow(this.chromeHooks, 'Tools');
   private cmd!: Record<string, Cmd>;
-  private journalTimer = 0;
-  private formNoticed = new WeakSet<Session>();
+  private journalTimers = new Map<Session, number>();
   private journalOff = new Map<Session, () => void>();
   private clip: { annots: Annot[]; pageId: string } | null = null;
   private stampLabel = 'APPROVED';
   private signature: Annot['image'] | null = null;
   private measure = this.loadMeasure();
   private speaking = false;
+  /** Each Read aloud gets a number, so a stopped one never starts talking again when its page text arrives. */
+  private speechRun = 0;
+  /** The sentence being spoken now, so Stop can end its wait. */
+  private speechWait: { run: number; done: () => void } | null = null;
+  private speechBar = h('div', { class: 'status-pill speech-bar', role: 'status', hidden: true },
+    icon('speak', 14), h('span', null, 'Reading aloud'),
+    h('button', { class: 'btn small', title: 'Stop reading (Escape)', onclick: () => this.stopReading() }, 'Stop'));
   reading: 'normal' | 'night' | 'sepia' = 'normal';
   study!: Study;
 
@@ -117,7 +187,7 @@ export class App {
     // Like Xodo: the app's own title bar (the Windows one is gone), one toolbar row, then the documents.
     root.append(
       h('header', { class: 'titlebar' },
-        h('div', { class: 'brand' }, icon('contrast', 16), h('span', null, 'PDFy')),
+        h('div', { class: 'brand' }, h('img', { src: 'brand/app-icon.svg', width: 20, height: 20, alt: '' }), h('span', null, 'Meletiq PDF')),
         this.titleText,
         h('div', { class: 'title-actions' },
           h('button', { class: 'icon-btn', title: 'Light or dark interface', 'aria-label': 'Switch light or dark', onclick: () => this.toggleUiTheme() }, icon('contrast', 15))),
@@ -136,16 +206,22 @@ export class App {
           h('button', { class: 'icon-btn small', title: `Zoom out (${keyLabel('zoom-out')})`, 'aria-label': 'Zoom out', onclick: () => this.zoomBy(0.85) }, icon('zoomOut', 14)),
           this.zoomInput,
           h('button', { class: 'icon-btn small', title: `Zoom in (${keyLabel('zoom-in')})`, 'aria-label': 'Zoom in', onclick: () => this.zoomBy(1.18) }, icon('zoomIn', 14))),
-        this.hintEl, this.statusMsg), this.pageEditor.el),
+        this.statusMsg, this.speechBar), this.pageEditor.el),
     );
 
     this.setMode('view');
+    // Catch up on redraws skipped while a number box was focused, once focus has really left the bar.
+    // Moving within the bar keeps its controls, so Tab and clicks land where they were aimed.
+    this.styleBar.addEventListener('focusout', e => {
+      if (this.styleBar.contains(e.relatedTarget as Node | null)) return;
+      setTimeout(() => { if (!this.styleBar.contains(document.activeElement)) this.drawStyleBar(); }, 0);
+    });
     this.drawStyleBar();
     this.wire();
     this.buildSelBar();
     this.refresh();
     void this.drawStart();
-    void this.checkRecovery().catch(err => console.warn('Recovery', err)).finally(() => void maybeShowGuide());
+    void this.checkRecovery().catch(err => console.warn('Recovery', err)).finally(() => { void maybeShowGuide(); void this.collectionsChanged(); });
     setInterval(() => this.updateMemory(), 3000);
   }
 
@@ -209,13 +285,6 @@ export class App {
     });
 
     document.addEventListener('paste', e => safe((ev: ClipboardEvent) => this.onPaste(ev), 'Pasting')(e));
-    // The first time a document turns out to hold a form, say how to fill it in.
-    document.addEventListener('pdfy-form-found', () => {
-      const s = this.session;
-      if (!s || this.formNoticed.has(s)) return;
-      this.formNoticed.add(s);
-      toast(this.mode === 'edit' ? 'This PDF has a form. Press Escape to go back to Read, then click a field to fill it in.' : 'This PDF has a form. Click a field to fill it in. Save keeps what you typed.', 'info', 6000);
-    });
     document.addEventListener('keydown', e => safe((ev: KeyboardEvent) => this.onKey(ev), 'That shortcut')(e));
     document.addEventListener('dragover', e => {
       if ([...(e.dataTransfer?.types ?? [])].includes('Files')) { e.preventDefault(); document.body.classList.add('drag-over'); }
@@ -257,7 +326,7 @@ export class App {
   private showSelBar() {
     const sel = window.getSelection();
     const text = sel?.toString().trim();
-    if (!sel || !text || !sel.rangeCount || this.tools.tool !== 'select' || !this.viewer.scroller.contains(sel.anchorNode)) { this.selBar.hidden = true; return; }
+    if (!sel || !text || !sel.rangeCount || this.tools.tool !== 'hand' || !this.viewer.scroller.contains(sel.anchorNode)) { this.selBar.hidden = true; return; }
     const rect = sel.getRangeAt(0).getBoundingClientRect();
     if (!rect.width) { this.selBar.hidden = true; return; }
     this.selBar.hidden = false;
@@ -325,9 +394,9 @@ export class App {
   /** Every command, once. Toolbars and menus pick from this list. */
   private defineCommands(): Record<string, Cmd> {
     const tool = (t: Tool, ic: string, label: string, key?: string, title?: string, aka?: string[]): Cmd => ({
-      label, icon: ic, title, key, aka, needsDoc: true,
+      label, icon: ic, title: TOOL_HINTS[t] ?? title, key, aka, needsDoc: true,
       on: () => this.tools.tool === t,
-      run: () => this.tools.setTool(this.tools.tool === t && t !== 'select' ? 'select' : t),
+      run: () => this.tools.setTool(this.tools.tool === t ? REST_TOOL : t),
     });
     const act = (ic: string, label: string, run: () => unknown, title?: string, needsDoc = true, extra: Partial<Cmd> = {}): Cmd => ({ icon: ic, label, run, title, needsDoc, ...extra });
     const panel = (id: PanelId, ic: string, label: string, title: string, key?: string): Cmd => ({
@@ -357,16 +426,15 @@ export class App {
       commentsPanel: panel('comments', 'comments', 'Comments', 'Every comment and markup in the document'),
       searchPanel: panel('search', 'search', 'Search', 'Find words in the document', 'find'),
       // Edit tools, in Xodo's order
-      pan: tool('hand', 'hand', 'Pan', 'pan', 'Drag the page to move around'),
-      select: tool('select', 'cursor', 'Select', undefined, 'Select text and objects (Escape)'),
+      pan: tool('hand', 'hand', 'Pan', 'pan', 'Select text, move objects, or drag blank space to pan. Hold Space to pan over text'),
       sticky: tool('note', 'sticky', 'Sticky', 'sticky', 'Sticky note comment', ['Note']),
       highlight: tool('highlight', 'highlight', 'Highlight', 'highlight'),
       underline: tool('underline', 'underline', 'Underline', 'underline'),
       strikeout: tool('strikeout', 'strike', 'Strikeout', 'strikeout'),
       squiggly: tool('squiggly', 'squiggly', 'Squiggly', 'squiggly'),
       stamper: act('stamper', 'Stamper', () => this.insertImage(), 'Place an image from a file', true, { key: 'stamper', aka: ['Image file'] }),
-      rubberStamp: act('rubberStamp', 'Rubber stamp', () => this.chooseStamp(), 'Approved, Draft, Confidential and your own', true, { aka: ['Stamp'], on: () => this.tools.tool === 'stamp' }),
-      signature: act('signature', 'Signature', () => this.chooseSignature(), 'Draw, type or upload a signature', true, { key: 'signature', aka: ['Sign'], on: () => this.tools.tool === 'signature' }),
+      rubberStamp: act('rubberStamp', 'Rubber stamp', () => this.chooseStamp(), 'Choose a stamp, then click on the page to place it.', true, { aka: ['Stamp'], on: () => this.tools.tool === 'stamp' }),
+      signature: act('signature', 'Signature', () => this.chooseSignature(), 'Draw, type or upload a signature, then click on the page to place it.', true, { key: 'signature', aka: ['Sign'], on: () => this.tools.tool === 'signature' }),
       ink: tool('pen', 'pen', 'Ink', 'ink', 'Draw freehand', ['Pen']),
       eraser: tool('eraser', 'eraser', 'Eraser', 'eraser', 'Removes ink and marker strokes'),
       marker: tool('marker', 'marker', 'Marker', 'marker'),
@@ -392,8 +460,8 @@ export class App {
       applyRedact: act('check', 'Apply redactions', () => this.applyRedactionsCmd(), 'Permanently remove everything marked'),
       whiteout: tool('whiteout', 'whiteout', 'White-out', undefined, 'Cover part of the page'),
       link: tool('link', 'link', 'Link', undefined, 'Drag a box, then enter a web address'),
-      attach: act('attach', 'Attach file', () => this.attachFileCmd(), 'Pin a file to a spot on the page'),
-      voice: act('mic', 'Voice note', () => this.voiceNoteCmd(), 'Record a short voice note and pin it to the page'),
+      attach: act('attach', 'Attach file', () => this.attachFileCmd(), 'Choose a file, then click on the page to pin it.'),
+      voice: act('mic', 'Voice note', () => this.voiceNoteCmd(), 'Record a voice note, then click on the page to pin it. Click the note to play it.'),
       fieldText: tool('field-text', 'field', 'Text field'),
       fieldCheck: tool('field-check', 'checkbox', 'Checkbox'),
       fieldRadio: tool('field-radio', 'radio', 'Radio'),
@@ -402,9 +470,9 @@ export class App {
       fieldSign: tool('field-signature', 'signature', 'Signature field'),
       detectFields: act('search', 'Detect fields', () => this.detectFieldsCmd(), 'Find blank lines and boxes and turn them into fields'),
       flattenForms: act('flatten', 'Flatten forms', () => this.flatten(false, true), 'Make form values part of the page'),
-      formsHelp: act('info', 'How forms work', () => this.formsHelp(), 'Filling in a form, and making your own', false),
+      formsHelp: act('info', 'How forms work', () => this.formsHelp(), 'In Read, click a field to fill it in. In Edit, choose a field tool to create one. Save keeps the answers.', false),
       // Study tools
-      lookup: act('book', 'Word lookup', () => this.study.toggleLookup(), 'When on, double-click or select a word to see its meaning, sound and Arabic', false, { key: 'lookup-toggle', on: () => this.study.lookupOn }),
+      lookup: act('book', 'Word lookup', () => this.study.toggleLookup(), 'When on, double-click a word on the page to see its meaning, sound and Arabic', false, { key: 'lookup-toggle', on: () => this.study.lookupOn, switch: true }),
       readPicture: tool('read-picture', 'ocr', 'Read picture', 'read-picture', 'Drag over an image or scan, then click any word in it'),
       markdown: tool('markdown', 'markdown', 'Markdown', 'markdown', 'Markdown note: click on the page and type Markdown. It formats when you click away', ['Markdown note']),
       equation: act('sigma', 'Equation', () => this.study.insertEquation(), 'Write an equation in LaTeX, with a live preview', true, { key: 'equation' }),
@@ -417,7 +485,7 @@ export class App {
       home: act('home', 'Home', () => this.toggleHome(), 'Recent files, recently closed and collections', false),
       addToCollection: act('folder', 'Add to collection', () => this.addToCollection(), 'Keep this document in a collection on the Home screen'),
       reopenClosed: act('history', 'Reopen closed', () => this.reopenClosed(), 'Open the document you closed last', false, { key: 'reopen-closed' }),
-      guide: act('guide', 'Feature guide', () => this.showGuide(), 'A short tour of what PDFy can do', false),
+      guide: act('guide', 'Feature guide', () => this.showGuide(), 'A short tour of what Meletiq PDF can do', false),
       // Pages
       rotL: act('rotL', 'Rotate left', () => this.rotatePages(-90)),
       rotR: act('rotR', 'Rotate right', () => this.rotatePages(90)),
@@ -452,7 +520,7 @@ export class App {
       // Protect
       addPassword: act('lock', 'Add password', () => this.passwordDialog()),
       removePassword: act('unlock', 'Remove password', () => this.removePassword()),
-      certSign: act('signature', 'Digital signature', () => this.certSignDialog(), 'Sign with a digital ID, which proves the file has not changed'),
+      certSign: act('signature', 'Digital signature', () => this.certSignDialog(), 'Sign with a digital ID, which proves the file has not changed. Choose an ID, then drag on the page to place a visible signature.'),
       createId: act('plus', 'Create digital ID', () => this.createIdDialog(), 'Make your own digital ID', false),
       cleanMeta: act('broom', 'Clean metadata', () => this.cleanMetadata(), 'Remove author, dates and other hidden information'),
       properties: act('info', 'Properties', () => this.propertiesDialog()),
@@ -478,11 +546,11 @@ export class App {
       night: act('moon', 'Night', () => this.setReading('night'), 'Dark pages for reading at night', true, { on: () => this.reading === 'night' }),
       sepia: act('book', 'Sepia', () => this.setReading('sepia'), 'Warm pages for long reading', true, { on: () => this.reading === 'sepia' }),
       reflow: act('reflow', 'Reflow', () => this.reflow(), 'Read as plain text that fits the window'),
-      readAloud: act('speak', 'Read aloud', () => this.readAloud(), undefined, true, { key: 'speech' }),
+      readAloud: act('speak', 'Read aloud', () => this.readAloud(), 'Read from this page, or stop reading', true, { key: 'speech', on: () => this.speaking, switch: true }),
       fullscreen: act('fullscreen', 'Full screen', () => this.fullscreen(), undefined, false, { key: 'fullscreen' }),
       // More
       shortcuts: act('keyboard', 'Keyboard shortcuts', () => this.showHelp(), 'Xodo’s keys, and your own', false, { key: 'help' }),
-      about: act('info', 'About and memory', () => this.aboutDialog(), 'Version, and how much memory PDFy is using', false),
+      about: act('info', 'About and memory', () => this.aboutDialog(), 'Version, and how much memory Meletiq PDF is using', false),
     };
     C.actions = {
       icon: 'actions', label: 'Actions', title: 'Every document tool in one place, with search', key: 'actions', needsDoc: false,
@@ -499,18 +567,18 @@ export class App {
     C.viewMenu = {
       icon: 'view', label: 'View', title: 'Page layout, zoom, page colours, reading and theme', needsDoc: false,
       menu: () => ({
-        wide: true, sections: [
+        grouped: true, sections: [
           { name: 'Layout', items: [C.scroll, C.onePage, C.twoPages] },
           { name: 'Zoom', items: [C.fitWidth, C.fitPage, C.zoomIn, C.zoomOut] },
           { name: 'Page colours', items: [C.normal, C.night, C.sepia] },
           { name: 'Reading', items: [C.reflow, C.readAloud, C.fullscreen] },
-          { name: 'Interface theme', items: UI_THEMES.map(t => ({ icon: t.dark ? 'moon' : 'sun', label: t.name, title: `${t.name} interface theme`, run: () => { applyUiTheme(t.id); this.syncRibbon(); }, on: () => currentUiTheme() === t.id })) },
+          { name: 'Interface theme', grid: true, items: UI_THEMES.map(t => ({ icon: t.dark ? 'moon' : 'sun', label: t.name, title: `${t.name} interface theme`, run: () => { applyUiTheme(t.id); this.syncRibbon(); }, on: () => currentUiTheme() === t.id })) },
         ],
       }),
     };
     C.moreMenu = {
       icon: 'more', label: 'More', title: 'Home, collections, settings, shortcuts and the guide', needsDoc: false,
-      menu: () => ({ sections: [{ name: 'PDFy', items: [C.new, C.home, C.addToCollection, C.reopenClosed, C.prefs, C.noteThemes, C.shortcuts, C.guide, C.about] }] }),
+      menu: () => ({ sections: [{ name: 'Meletiq PDF', items: [C.new, C.home, C.addToCollection, C.reopenClosed, C.prefs, C.noteThemes, C.shortcuts, C.guide, C.about] }] }),
     };
     C.measureMenu = { icon: 'measure', label: 'Measure', title: 'Distance, perimeter and area', needsDoc: true, on: () => ['distance', 'perimeter', 'area'].includes(this.tools.tool), menu: () => ({ sections: [{ name: 'Measure', items: [C.distance, C.perimeter, C.area, C.scale] }] }) };
     C.shapesMenu = { icon: 'shapes', label: 'Shapes', title: 'Polygon, polyline and cloud', needsDoc: true, aka: ['Shape to...'], on: () => ['polygon', 'polyline', 'cloud'].includes(this.tools.tool), menu: () => ({ sections: [{ name: 'Shapes', items: [C.polygon, C.polyline, C.cloud] }] }) };
@@ -531,14 +599,14 @@ export class App {
     const C = this.cmd;
     if (mode === 'edit') {
       return {
-        left: [C.closeMode, '|', C.sticky, C.highlight, C.underline, C.strikeout, C.squiggly, '|', C.ink, C.eraser, C.marker, C.textBox, C.callout, '|',
+        left: [C.closeMode, '|', C.pan, '|', C.sticky, C.highlight, C.underline, C.strikeout, C.squiggly, '|', C.ink, C.eraser, C.marker, C.textBox, C.callout, '|',
           C.markdown, C.equation, C.readPicture, C.lookup, '|', C.square, C.oval, C.line, C.arrow, C.measureMenu, C.shapesMenu, '|',
-          C.imageMenu, C.stamper, C.rubberStamp, C.signature, '|', C.multiselect, C.lasso, C.redactMenu, C.insertMenu, C.formsMenu, C.editText, C.pan],
+          C.imageMenu, C.stamper, C.rubberStamp, C.signature, '|', C.multiselect, C.lasso, C.redactMenu, C.insertMenu, C.formsMenu, C.editText],
         right: [C.undo, C.redo],
       };
     }
     return {
-      left: [C.open, C.save, C.saveAs, C.print, '|', C.actions],
+      left: [C.open, C.save, C.saveAs, C.print, '|', C.actions, '|', C.pan],
       right: [C.undo, C.redo, '|', C.editMode, '|', C.pagesPanel, C.outlinePanel, C.bookmarksPanel, C.commentsPanel, C.searchPanel, '|', C.viewMenu, C.moreMenu],
     };
   }
@@ -550,7 +618,7 @@ export class App {
     if (mode === 'edit') this.pageEditor?.close();
     if (mode !== this.mode) {
       this.tools.finishClickShape();
-      if (this.tools.tool !== 'select' && this.tools.tool !== 'hand') this.tools.setTool('select');
+      this.tools.useReadingTool();
     }
     this.mode = mode;
     document.documentElement.dataset.mode = mode;
@@ -603,76 +671,75 @@ export class App {
     return null;
   }
 
-  private syncRibbon() {
+  /** Brings every toolbar button's on/off state in line with the tool, panel and mode in use. */
+  syncRibbon() {
     this.row?.sync();
     this.drawStyleBar();
   }
 
   async aboutDialog() {
     this.updateMemory();
-    await openDialog('About PDFy', h('div', { class: 'form' },
-      h('p', null, 'PDFy: a PDF editor with study tools.'),
+    await openDialog('About Meletiq PDF', h('div', { class: 'form' },
+      h('p', null, 'Meletiq PDF: a PDF editor with study tools.'),
       h('p', { class: 'muted' }, this.memEl.textContent || 'Memory figures appear once a document is open.'),
       h('p', { class: 'muted' }, 'Keyboard shortcuts follow Xodo 6.3.4. Offline dictionary from Wiktionary (CC BY-SA).')),
     [{ label: 'Close', value: true, primary: true }], true);
   }
 
   private drawStyleBar() {
+    const sel = this.styleSelection();
+    const context = JSON.stringify([this.session?.id, this.tools.tool, this.viewer.selection, [...this.viewer.extra], sel?.annot.kind, !!sel?.annot.markdown]);
+    const focused = document.activeElement;
+    if (this.styleBar.dataset.context === context && focused instanceof HTMLInputElement && focused.type === 'number' && this.styleBar.contains(focused)) return;
+    this.styleBar.dataset.context = context;
     this.drawStyleBarInner();
-    this.settleStyleBar();
+    this.styleBar.classList.toggle('quiet', !this.styleBar.childElementCount);
+  }
+
+  /** A mixed selection uses the most common type; ties follow the main selected object. */
+  private styleSelection(): ReturnType<Viewer['selectedAnnot']> {
+    const chosen = this.viewer.selectedAnnots();
+    if (!chosen) return null;
+    const type = (a: Annot) => a.markdown ? 'markdown' : a.kind;
+    const counts = new Map<string, number>();
+    for (const a of chosen.annots) counts.set(type(a), (counts.get(type(a)) ?? 0) + 1);
+    let annot = chosen.annots[0];
+    for (const a of chosen.annots) if (counts.get(type(a))! > counts.get(type(annot))!) annot = a;
+    return { page: chosen.page, annot };
+  }
+
+  private mixedStyle(key: keyof Annot, fallback?: unknown): boolean {
+    const values = this.viewer.selectedAnnots()?.annots.filter(a => supportsStyle(a, key)).map(a => a[key] ?? fallback) ?? [];
+    return values.some(v => v !== values[0]);
   }
 
   private drawStyleBarInner() {
     const bar = this.styleBar;
     clear(bar);
-    const sel = this.viewer.selectedAnnot();
+    const sel = this.styleSelection();
     const tool = this.tools.tool;
     // Reading with nothing chosen needs no style row, so it stays out of the way, as in Xodo.
-    bar.classList.toggle('quiet', this.mode === 'view' && !sel && !this.viewer.extra.size && (tool === 'select' || tool === 'hand'));
-    const hints: Partial<Record<Tool, string>> = {
-      select: 'Select text or click an object. Double-click to edit. Press Delete to remove.',
-      hand: 'Drag the page to move around.',
-      snip: 'Drag over any area of the page. It is converted to the opposite theme.',
-      redact: 'Drag over what should go. Nothing is removed until you press Apply redactions.',
-      crop: 'Drag the area to keep.',
-      'cert-box': 'Drag where the signature box should appear.',
-      'crop-image': 'Drag over the part of the image to keep.',
-      'edit-text': 'Click a line of text. Press Enter when done. The old text stays underneath unless redacted.',
-      eraser: 'Drag over pen or marker strokes to remove them.',
-      'read-picture': 'Drag over an image, a scan or any part of the page. Each word found can then be clicked.',
-      markdown: 'Click on the page, then type. It turns into formatted notes when you click away.',
-      polygon: 'Click each corner. Double-click or press Enter to finish.',
-      'field-text': 'Drag a box where the text field goes, then name it. Press Escape to go back to Read and type in it.',
-      'field-check': 'Drag a small box for the tick box, then name it. In Read, click it to tick.',
-      'field-radio': 'Drag a small box for this choice. Give choices of one question the same name.',
-      'field-dropdown': 'Drag a box, then type the choices, one per line. In Read, click it to choose.',
-      'field-list': 'Drag a box, then type the choices, one per line. In Read, several can be chosen.',
-      'field-signature': 'Drag where the signature should go. Others can sign there in their PDF app.',
-      polyline: 'Click each point. Double-click or press Enter to finish.',
-      cloud: 'Click each corner. Double-click or press Enter to finish.',
-      perimeter: 'Click each point. Double-click or press Enter to finish.',
-      area: 'Click each corner. Double-click or press Enter to finish.',
-    };
-
+    bar.classList.toggle('quiet', this.mode === 'view' && !sel && !this.viewer.extra.size && tool === 'hand');
     if (this.viewer.extra.size) {
-      bar.append(h('span', { class: 'style-hint' }, `${this.viewer.extra.size + 1} objects selected. Drag to move them together.`));
-      for (const [how, label] of [['left', 'Left'], ['center', 'Centre'], ['right', 'Right'], ['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']] as const) {
-        bar.append(h('button', { class: 'btn small', title: `Align ${label.toLowerCase()}`, onclick: () => this.align(how) }, label));
-      }
-      return;
+      bar.append(h('span', { class: 'style-hint', title: 'Properties follow the most common selected type. Changes apply to selected objects that support that property.' }, `${this.viewer.extra.size + 1} selected`));
+      bar.append(h('button', { class: 'btn small', title: 'Align selected objects', onclick: (e: MouseEvent) => {
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        showMenu(r.left, r.bottom, ([['left', 'Left'], ['center', 'Centre'], ['right', 'Right'], ['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']] as const)
+          .map(([how, label]) => ({ label, run: () => this.align(how) })));
+      } }, 'Align'));
     }
-    if (sel?.annot.kind === 'image') { bar.append(h('span', { class: 'style-hint' }, 'Image selected. Use the bar above it to convert the theme.')); return; }
+    if (sel && ['image', 'whiteout', 'redact', 'link'].includes(sel.annot.kind)) return;
     if (tool === 'markdown' || sel?.annot.markdown) { this.drawNoteBar(bar, sel); return; }
     if (sel?.annot.kind === 'math') { this.drawEquationBar(bar, sel); return; }
     const showStyle = !!sel || (!['select', 'hand', 'snip', 'read-picture', 'crop', 'crop-image', 'cert-box', 'edit-text', 'eraser', 'redact', 'whiteout', 'link'].includes(tool) && !tool.startsWith('field-'));
-    if (!showStyle) { bar.append(h('span', { class: 'style-hint' }, hints[tool] ?? '')); return; }
+    if (!showStyle) return;
 
     const style = sel ? { color: sel.annot.color, width: sel.annot.width, opacity: sel.annot.opacity, fill: sel.annot.fill ?? null, fontSize: sel.annot.fontSize ?? 12 } : this.tools.style(tool);
     const kind = sel?.annot.kind ?? tool;
-    const apply = (patch: Partial<Annot>) => this.applyStyle(patch);
+    const apply = (patch: Partial<Annot>) => { void this.applyStyle(patch).catch(err => reportError('Changing style', err)); };
 
     const swatches = h('div', { class: 'swatches', role: 'group', 'aria-label': 'Colour' }, ...COLOURS.map(c => h('button', {
-      class: `swatch-btn${style.color.toLowerCase() === c ? ' active' : ''}`, style: { background: c }, title: c, 'aria-label': `Colour ${c}`,
+      class: `swatch-btn${!this.mixedStyle('color') && style.color.toLowerCase() === c ? ' active' : ''}`, style: { background: c }, title: c, 'aria-label': `Colour ${c}`,
       onclick: () => apply({ color: c, ...(kind === 'text' || kind === 'callout' ? { textColor: c } : {}) }),
     })));
     swatches.append(colourButton(style.color, c => apply({ color: c, ...(kind === 'text' || kind === 'callout' ? { textColor: c } : {}) }), 'Any colour'));
@@ -680,36 +747,40 @@ export class App {
 
     const isStroke = !['highlight', 'text', 'note', 'stamp'].includes(kind);
     if (isStroke) {
-      const w = h('input', { type: 'number', min: 0.25, max: 40, step: 0.25, value: style.width, style: { width: '58px' } });
+      const w = h('input', { type: 'number', min: 0.25, max: 40, step: 0.25, value: this.mixedStyle('width') ? '' : style.width, placeholder: 'Mixed', style: { width: '58px' } });
       w.addEventListener('change', () => apply({ width: Math.max(0.25, +w.value || 1) }));
       bar.append(h('label', null, 'Thickness', w));
     }
     const op = h('select', null, ...[100, 80, 60, 40, 25].map(p => h('option', { value: p / 100, selected: Math.abs(style.opacity - p / 100) < 0.11 }, `${p}%`)));
+    if (this.mixedStyle('opacity')) { op.prepend(h('option', { value: '', selected: true }, 'Mixed')); op.value = ''; }
     op.addEventListener('change', () => apply({ opacity: +op.value }));
     bar.append(h('label', null, 'Opacity', op));
     if (kind === 'text' || kind === 'callout') {
       const cur = sel?.annot ?? this.tools.style(tool);
-      bar.append(h('label', null, 'Font', fontButton({ fontName: cur.fontName, font: cur.font }, c => apply({ fontName: c.fontName, font: c.font ?? cur.font }))));
-      bar.append(h('button', { class: `style-toggle${cur.bold ? ' active' : ''}`, title: 'Bold', 'aria-pressed': String(!!cur.bold), onclick: () => apply({ bold: !cur.bold }) }, h('b', null, 'B')));
-      bar.append(h('button', { class: `style-toggle${cur.italic ? ' active' : ''}`, title: 'Italic', 'aria-pressed': String(!!cur.italic), onclick: () => apply({ italic: !cur.italic }) }, h('i', null, 'I')));
-      const fs = h('input', { type: 'number', min: 4, max: 200, step: 1, value: style.fontSize, style: { width: '58px' } });
+      const font = fontButton({ fontName: cur.fontName, font: cur.font }, c => apply({ fontName: c.fontName, font: c.font ?? cur.font }));
+      if (this.mixedStyle('fontName') || this.mixedStyle('font', 'helvetica')) font.textContent = 'Mixed';
+      bar.append(h('label', null, 'Font', font));
+      const bold = !!cur.bold && !this.mixedStyle('bold', false), italic = !!cur.italic && !this.mixedStyle('italic', false);
+      bar.append(h('button', { class: `style-toggle${bold ? ' active' : ''}`, title: 'Bold', 'aria-pressed': this.mixedStyle('bold', false) ? 'mixed' : String(bold), onclick: () => apply({ bold: !bold }) }, h('b', null, 'B')));
+      bar.append(h('button', { class: `style-toggle${italic ? ' active' : ''}`, title: 'Italic', 'aria-pressed': this.mixedStyle('italic', false) ? 'mixed' : String(italic), onclick: () => apply({ italic: !italic }) }, h('i', null, 'I')));
+      const fs = h('input', { type: 'number', min: 4, max: 200, step: 1, value: this.mixedStyle('fontSize', 12) ? '' : style.fontSize, placeholder: 'Mixed', style: { width: '58px' } });
       fs.addEventListener('change', () => apply({ fontSize: Math.max(4, +fs.value || 12) }));
       bar.append(h('label', null, 'Size', fs));
     }
     if (['rect', 'ellipse', 'polygon', 'cloud', 'text', 'callout'].includes(kind)) {
       const on = h('input', { type: 'checkbox', checked: !!style.fill });
+      on.indeterminate = this.mixedStyle('fill', null);
       let fillNow = style.fill ?? '#ffffff';
       on.addEventListener('change', () => apply({ fill: on.checked ? fillNow : null }));
       bar.append(h('label', null, on, 'Fill'), colourButton(fillNow, c => { fillNow = c; apply({ fill: c }); }, 'Fill colour'));
     }
-    if (hints[tool] && !sel) bar.append(h('span', { class: 'style-hint' }, hints[tool]));
   }
 
   /** Controls for a Markdown note: its theme and text size. */
   private drawNoteBar(bar: HTMLElement, sel: ReturnType<Viewer['selectedAnnot']>) {
     const note = sel?.annot;
     const change = (patch: Partial<Annot>) => {
-      if (sel && note) void this.study.restyleNote(sel.page, note, patch).catch(err => reportError('Changing the note', err));
+      if (sel && note) void this.applyStyle(patch).catch(err => reportError('Changing the note', err));
     };
     bar.append(h('label', null, 'Theme', this.study.themeSelect(note?.mdTheme, id => {
       if (note) change({ mdTheme: id });
@@ -722,44 +793,66 @@ export class App {
     });
     bar.append(h('label', null, 'Size', size));
     bar.append(h('button', { class: 'btn small', onclick: safe(() => this.study.themesDialog(note?.mdTheme), 'Themes') }, 'Edit themes…'));
-    if (note) {
+    if (note && !this.viewer.extra.size) {
       const v = this.viewer.views.get(sel!.page.id);
       if (v) bar.append(h('button', { class: 'btn small', onclick: () => this.tools.openEditor(v, note, false) }, 'Edit Markdown'));
-    } else {
-      bar.append(h('span', { class: 'style-hint' }, 'Click on the page, then type. It turns into formatted notes when you click away.'));
     }
   }
 
   /** Controls for a selected equation. */
   private drawEquationBar(bar: HTMLElement, sel: NonNullable<ReturnType<Viewer['selectedAnnot']>>) {
     const a = sel.annot;
-    const change = (patch: Partial<Annot>) => { void this.study.restyleEquation(sel.page, a, patch).catch(err => reportError('Changing the equation', err)); };
+    const change = (patch: Partial<Annot>) => { void this.applyStyle(patch).catch(err => reportError('Changing the equation', err)); };
     bar.append(h('label', null, 'Colour', colourButton(a.color, c => change({ color: c }), 'Equation colour')));
     const size = h('input', { type: 'number', min: 6, max: 96, step: 1, value: a.fontSize ?? 18, style: { width: '58px' } });
     size.addEventListener('change', () => change({ fontSize: Math.max(6, +size.value || 18) }));
     bar.append(h('label', null, 'Size', size));
     const v = this.viewer.views.get(sel.page.id);
-    if (v) bar.append(h('button', { class: 'btn small', onclick: safe(() => this.study.editEquation(v, a), 'Editing the equation') }, 'Edit equation'));
+    if (v && !this.viewer.extra.size) bar.append(h('button', { class: 'btn small', onclick: safe(() => this.study.editEquation(v, a), 'Editing the equation') }, 'Edit equation'));
   }
 
-  /** Called after the style row is drawn: a row of tips only becomes the tip at the bottom. */
-  private settleStyleBar() {
-    const bar = this.styleBar;
-    const onlyTips = [...bar.children].every(c => c.classList.contains('style-hint'));
-    if (onlyTips) bar.classList.add('quiet');
-    // Just reading needs no tip. Tips are for when a tool is in hand.
-    const reading = this.mode === 'view' && ['select', 'hand'].includes(this.tools.tool);
-    this.hintEl.textContent = onlyTips && !reading ? bar.textContent ?? '' : '';
-    this.hintEl.hidden = !this.hintEl.textContent;
+  private applyStyle(patch: Partial<Annot>): Promise<void> {
+    const chosen = this.viewer.selectedAnnots(), session = this.session;
+    const tool = this.tools.tool;
+    const next = this.styleChanges.then(() => this.changeStyle(patch, session, chosen, tool));
+    this.styleChanges = next.catch(() => {});
+    return next;
   }
 
-  private applyStyle(patch: Partial<Annot>) {
-    const sel = this.viewer.selectedAnnot();
-    if (sel && this.session) {
-      const { ghost: _g, ...rest } = sel.annot;
-      this.session.replaceAnnot(sel.page, sel.annot, { ...rest, ...patch }, 'Change style');
+  private async changeStyle(patch: Partial<Annot>, session: Session | null, chosen: ReturnType<Viewer['selectedAnnots']>, tool: Tool) {
+    if (chosen && session) {
+      if (!this.sessions.includes(session) || !session.pages.includes(chosen.page)) return;
+      const annots = chosen.annots.map(a => chosen.page.annots.find(current => current.id === a.id)).filter((a): a is Annot => !!a);
+      const pairs = await Promise.all(annots.map(async before => {
+        const changes = Object.fromEntries(Object.entries(patch).filter(([key]) => supportsStyle(before, key))) as Partial<Annot>;
+        if (!Object.keys(changes).length) return null;
+        if (changes.color && supportsStyle(before, 'textColor')) changes.textColor = changes.color;
+        const { ghost: _g, ...rest } = before;
+        let after: Annot = { ...rest, ...changes };
+        if (after.markdown && (changes.fontSize !== undefined || changes.mdTheme !== undefined)) after = await fitMarkdown(after);
+        if (after.kind === 'math' && changes.fontSize !== undefined) {
+          const math = await texToSvg(after.latex ?? '', after.mathDisplay !== false), size = mathBoxSize(math, changes.fontSize);
+          const cx = (before.rect[0] + before.rect[2]) / 2, cy = (before.rect[1] + before.rect[3]) / 2;
+          after = { ...after, mathSvg: math.svg, rect: [cx - size.w / 2, cy - size.h / 2, cx + size.w / 2, cy + size.h / 2] };
+        }
+        return { before, after, changes };
+      }));
+      const edits = pairs.filter(p => p !== null);
+      if (!edits.length || !this.sessions.includes(session) || !session.pages.includes(chosen.page) || edits.some(p => chosen.page.annots.find(a => a.id === p.before.id) !== p.before)) { this.drawStyleBar(); return; }
+      session.replaceMany(chosen.page, edits, 'Change style');
+      // Selection edits also become the defaults for the next item of each affected type.
+      const remembered = new Set<Tool>();
+      for (const { after, changes } of edits) {
+        const tool = styleTool(after);
+        if (tool && !remembered.has(tool)) {
+          remembered.add(tool);
+          const { textColor: _tc, mdTheme: _md, ...defaults } = changes;
+          this.tools.setStyle(defaults as never, tool);
+        }
+      }
+      if (patch.mdTheme !== undefined) saveSettings({ mdTheme: patch.mdTheme });
     } else {
-      this.tools.setStyle(patch as never);
+      this.tools.setStyle(patch as never, tool);
     }
     this.drawStyleBar();
   }
@@ -767,17 +860,203 @@ export class App {
   // ---- Documents and tabs ----
 
   private drawTabs() {
+    const scroll = this.tabsEl.scrollLeft;
+    const focusedGroup = document.activeElement?.closest<HTMLElement>('.tab-group')?.dataset.collectionId;
     clear(this.tabsEl);
+    const containers = new Map<string, HTMLElement>();
     for (const s of this.sessions) {
-      this.tabsEl.append(h('div', {
-        class: `doc-tab${s === this.session ? ' active' : ''}`, role: 'tab', 'aria-selected': String(s === this.session), tabindex: 0, title: s.name,
+      let container: HTMLElement = this.tabsEl;
+      const group = s.collectionId ? this.tabGroups.get(s.collectionId) : undefined;
+      if (group) {
+        let existing = containers.get(group.id);
+        if (!existing) {
+          const members = this.sessions.filter(item => item.collectionId === group.id);
+          const toggle = h('button', {
+            class: 'tab-group-toggle', type: 'button', 'aria-expanded': String(!group.collapsed),
+            'aria-label': `${group.collapsed ? 'Expand' : 'Collapse'} ${group.name}, ${members.length} document${members.length === 1 ? '' : 's'}`,
+            title: `${group.name}: click to ${group.collapsed ? 'expand' : 'collapse'}. Right-click for group actions.`,
+            onclick: () => { group.collapsed = !group.collapsed; void updateCollection(group); this.drawTabs(); },
+            oncontextmenu: (e: MouseEvent) => { e.preventDefault(); this.collectionMenu(e, group); },
+          }, icon(group.collapsed ? 'chevRight' : 'chevDown', 12), h('span', { class: 'tab-group-name' }, group.name), h('span', { class: 'tab-group-count' }, String(members.length)));
+          existing = h('div', { class: `tab-group${group.collapsed ? ' collapsed' : ''}${members.includes(this.session!) ? ' has-active' : ''}`, role: 'group', 'aria-label': group.name, 'data-collection-id': group.id }, toggle);
+          existing.style.setProperty('--group-colour', group.colour);
+          containers.set(group.id, existing);
+          this.tabsEl.append(existing);
+        }
+        container = existing;
+      }
+      const tab = h('div', {
+        class: `doc-tab${s === this.session ? ' active' : ''}`, role: 'tab', 'aria-selected': String(s === this.session), tabindex: 0,
+        'data-session-id': s.id, draggable: true, title: `${s.name}\nDrag to reorder. Ctrl+Shift+Left/Right moves this tab.`,
         onclick: () => { this.hideHome(); this.activate(s); },
         oncontextmenu: (e: MouseEvent) => { e.preventDefault(); this.tabMenu(e, s); },
+        onpointerdown: (e: PointerEvent) => { tab.draggable = !(e.target as Element).closest('button'); },
+        ondragstart: (e: DragEvent) => {
+          if (!e.dataTransfer) return;
+          this.draggedTab = s;
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('application/x-pdfy-tab', s.id);
+          tab.classList.add('dragging');
+        },
+        ondragend: () => {
+          this.draggedTab = null;
+          tab.classList.remove('dragging');
+          this.clearTabDrop();
+        },
+        onkeydown: (e: KeyboardEvent) => {
+          if (e.target !== tab || !e.ctrlKey || !e.shiftKey || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          this.moveTab(s, this.sessions.indexOf(s) + (e.key === 'ArrowLeft' ? -1 : 1));
+        },
       },
       s.dirty ? h('span', { class: 'dot', title: 'Unsaved changes' }) : null,
       h('span', { class: 'name' }, s.name),
-      h('button', { class: 'icon-btn small', title: 'Close', 'aria-label': `Close ${s.name}`, onclick: safe((e: Event) => { e.stopPropagation(); return this.closeSession(s); }, 'Closing') }, icon('close', 13))));
+      h('button', { class: 'icon-btn small', draggable: false, title: 'Close', 'aria-label': `Close ${s.name}`, onclick: safe((e: Event) => { e.stopPropagation(); return this.closeSession(s); }, 'Closing') }, icon('close', 13)));
+      container.append(tab);
     }
+    this.tabsEl.scrollLeft = scroll;
+    if (focusedGroup) this.tabsEl.querySelector<HTMLButtonElement>(`[data-collection-id="${CSS.escape(focusedGroup)}"] .tab-group-toggle`)?.focus({ preventScroll: true });
+  }
+
+  private clearTabDrop() {
+    for (const tab of this.tabsEl.querySelectorAll('.drop-before, .drop-after')) tab.classList.remove('drop-before', 'drop-after');
+    for (const group of this.tabsEl.querySelectorAll('.drop-target')) group.classList.remove('drop-target');
+  }
+
+  private tabDropIndex(x: number) {
+    const next = [...this.tabsEl.querySelectorAll<HTMLElement>('.doc-tab')].find(tab => {
+      const box = tab.getBoundingClientRect(); return box.width > 0 && x < box.left + box.width / 2;
+    });
+    return next ? this.sessions.findIndex(s => s.id === next.dataset.sessionId) : this.sessions.length;
+  }
+
+  private dragTabOver(e: DragEvent) {
+    if (!this.draggedTab) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    this.clearTabDrop();
+    const group = (e.target as Element).closest<HTMLElement>('.tab-group');
+    if (group) group.classList.add('drop-target');
+    const slot = this.tabDropIndex(e.clientX);
+    const target = this.sessions[Math.min(slot, this.sessions.length - 1)];
+    this.tabsEl.querySelector(`[data-session-id="${target?.id}"]`)?.classList.add(slot === this.sessions.length ? 'drop-after' : 'drop-before');
+  }
+
+  private dropTab(e: DragEvent) {
+    const source = this.draggedTab;
+    if (!source) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const from = this.sessions.indexOf(source), slot = this.tabDropIndex(e.clientX);
+    this.draggedTab = null;
+    this.clearTabDrop();
+    const group = (e.target as Element).closest<HTMLElement>('.tab-group')?.dataset.collectionId ?? null;
+    if ((source.collectionId ?? null) !== group) {
+      void this.moveToCollection(source, group).then(moved => { if (moved) this.moveTab(source, slot - (from < slot ? 1 : 0)); }).catch(err => reportError('Moving tab', err));
+      return;
+    }
+    this.moveTab(source, slot - (from < slot ? 1 : 0));
+  }
+
+  private moveTab(session: Session, index: number) {
+    const from = this.sessions.indexOf(session);
+    if (from < 0) return;
+    const to = Math.max(0, Math.min(this.sessions.length - 1, index));
+    if (from === to) return;
+    const focused = this.tabsEl.contains(document.activeElement);
+    this.sessions.splice(from, 1);
+    this.sessions.splice(to, 0, session);
+    this.keepCollectionTabsTogether();
+    this.updateTabOrder();
+    void this.rememberOpenTabs().then(() => { if (this.showingHome) void this.home.draw(); });
+    this.drawTabs();
+    if (focused) {
+      const moved = this.tabsEl.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(session.id)}"]`);
+      moved?.focus({ preventScroll: true });
+      moved?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }
+
+  private updateTabOrder() {
+    for (const s of this.sessions) s.tabOrder = this.nextTabOrder = Math.max(Date.now(), this.nextTabOrder + 1);
+  }
+
+  private keepCollectionTabsTogether() {
+    const groups = new Map<string, Session[]>();
+    for (const s of this.sessions) if (s.collectionId) {
+      const members = groups.get(s.collectionId) ?? [];
+      members.push(s); groups.set(s.collectionId, members);
+    }
+    const placed = new Set<string>();
+    this.sessions = this.sessions.flatMap(s => {
+      if (!s.collectionId) return [s];
+      if (placed.has(s.collectionId)) return [];
+      placed.add(s.collectionId);
+      return groups.get(s.collectionId)!;
+    });
+  }
+
+  /** Refresh saved group names, colours and membership after library changes. */
+  async collectionsChanged() {
+    const run = ++this.collectionRun;
+    const groups = await listCollections();
+    const items = (await Promise.all(groups.map(c => listItems(c.id)))).flat();
+    const assignments = await Promise.all(this.sessions.map(async session => {
+      const ids: string[] = [];
+      if (session.handle && !this.ungroupedTabs.has(session)) {
+        for (const item of items) {
+          if (item.name === session.handle.name && await session.handle.isSameEntry(item.handle).catch(() => false)) ids.push(item.collection);
+        }
+      }
+      return { session, id: session.collectionId && ids.includes(session.collectionId) ? session.collectionId : ids[0] ?? null };
+    }));
+    if (run !== this.collectionRun) return;
+    const previousGroup = this.session?.collectionId;
+    this.tabGroups = new Map(groups.map(c => [c.id, c]));
+    for (const { session, id } of assignments) if (this.sessions.includes(session)) session.collectionId = id;
+    const activeGroup = this.session?.collectionId ? this.tabGroups.get(this.session.collectionId) : undefined;
+    if (activeGroup?.collapsed && activeGroup.id !== previousGroup) {
+      activeGroup.collapsed = false; void updateCollection(activeGroup);
+    }
+    this.keepCollectionTabsTogether();
+    this.drawTabs();
+  }
+
+  private async moveToCollection(session: Session, id: string | null): Promise<boolean> {
+    if (!this.sessions.includes(session)) return false;
+    if (!session.handle) { toast('Save the document first to put it in a collection.', 'info'); return false; }
+    if (id && !this.tabGroups.has(id)) return false;
+    if (!await moveCollectionFile(session.name, session.handle, session.collectionId, id, session.pages.length)) {
+      toast('The tab could not be moved. Try again.', 'error'); return false;
+    }
+    session.collectionId = id;
+    if (id) this.ungroupedTabs.delete(session); else this.ungroupedTabs.add(session);
+    await this.collectionsChanged();
+    this.updateTabOrder();
+    await this.rememberOpenTabs();
+    return true;
+  }
+
+  private collectionMenu(e: MouseEvent, group: Collection) {
+    showMenu(e.clientX, e.clientY, [
+      { label: group.collapsed ? 'Expand group' : 'Collapse group', icon: group.collapsed ? 'chevRight' : 'chevDown', run: () => {
+        group.collapsed = !group.collapsed; void updateCollection(group); this.drawTabs();
+      } },
+      { label: 'Rename or colour…', icon: 'edit', run: () => this.home.editCollection(group) },
+      { label: 'Close group', icon: 'close', run: async () => {
+        for (const s of this.sessions.filter(s => s.collectionId === group.id)) {
+          await this.closeSession(s);
+          if (this.sessions.includes(s)) break;
+        }
+      } },
+    ]);
+  }
+
+  rememberOpenTabs(): Promise<unknown> {
+    const order = this.sessions.filter(s => s.handle).map(s => ({ handle: s.handle!, order: s.tabOrder }));
+    this.orderWrites = this.orderWrites.then(() => rememberTabOrder(order));
+    return this.orderWrites;
   }
 
   private refresh() {
@@ -796,7 +1075,7 @@ export class App {
     this.zoomInput.disabled = !s;
     this.bookmarkBtn.disabled = !s;
     this.syncBookmarks();
-    document.title = s ? `${s.name}${s.dirty ? ' •' : ''} – PDFy` : 'PDFy';
+    document.title = s ? `${s.name}${s.dirty ? ' •' : ''} – Meletiq PDF` : 'Meletiq PDF';
     this.titleText.textContent = s ? `${s.name}${s.dirty ? ' •' : ''}` : '';
     this.updateMemory();
   }
@@ -805,13 +1084,20 @@ export class App {
     const m = performance.memory;
     const mb = m ? Math.round(m.usedJSHeapSize / 1048576) : 0;
     const pages = this.viewer.views.size;
-    this.memEl.textContent = m && this.session ? `PDFy is using ${mb} MB of memory, with ${pages} page${pages === 1 ? '' : 's'} drawn.`
-      : m ? `PDFy is using ${mb} MB of memory.` : '';
+    this.memEl.textContent = m && this.session ? `Meletiq PDF is using ${mb} MB of memory, with ${pages} page${pages === 1 ? '' : 's'} drawn.`
+      : m ? `Meletiq PDF is using ${mb} MB of memory.` : '';
   }
 
   add(session: Session) {
     this.showingHome = false;
+    session.tabOrder = this.nextTabOrder = Math.max(Date.now(), this.nextTabOrder + 1);
     this.sessions.push(session);
+    this.listen(session);
+    this.activate(session);
+  }
+
+  /** Keeps the screen and the recovery copy in step with one document's changes. */
+  private listen(session: Session) {
     this.journalOff.set(session, session.on(c => {
       if (session === this.session) {
         if (c.kind !== 'meta') this.panels.change(c.kind);
@@ -824,11 +1110,25 @@ export class App {
       }
       this.scheduleJournal(session);
     }));
-    this.activate(session);
+  }
+
+  /** Stops following a document that is leaving its tab, and drops its recovery copy. */
+  private unlisten(session: Session) {
+    this.journalOff.get(session)?.();
+    this.journalOff.delete(session);
+    clearTimeout(this.journalTimers.get(session));
+    this.journalTimers.delete(session);
+    void dropJournal(session.id);
   }
 
   activate(session: Session | null) {
+    const group = session?.collectionId ? this.tabGroups.get(session.collectionId) : undefined;
+    if (group?.collapsed) {
+      group.collapsed = false; void updateCollection(group);
+      if (session === this.session) this.drawTabs();
+    }
     if (session === this.session && session) return;
+    this.stopReading();
     this.tools.cancel();
     this.tools.commitEdit();
     closeWordLayer();
@@ -845,40 +1145,61 @@ export class App {
   }
 
   private scheduleJournal(session: Session) {
-    clearTimeout(this.journalTimer);
-    this.journalTimer = window.setTimeout(() => {
+    clearTimeout(this.journalTimers.get(session));
+    this.journalTimers.set(session, window.setTimeout(() => {
+      this.journalTimers.delete(session);
       if (!this.sessions.includes(session)) return;
       if (session.dirty) saveJournal(session).catch(err => console.warn('Recovery save', err));
       else void dropJournal(session.id);
-    }, 2500);
+    }, 2500));
   }
 
-  async closeSession(session: Session) {
-    await this.tools.settle();
+  closeSession(session: Session): Promise<void> {
+    const current = this.closing.get(session);
+    if (current) return current;
+    if (!this.sessions.includes(session)) return Promise.resolve();
+    const closing = this.closeSessionOnce(session).finally(() => this.closing.delete(session));
+    this.closing.set(session, closing);
+    return closing;
+  }
+
+  private async closeSessionOnce(session: Session) {
+    if (this.session === session) await this.tools.settle();
+    await this.styleChanges;
+    await this.saves.get(session)?.promise;
+    if (!this.sessions.includes(session)) return;
+    if (this.session === session) await this.tools.settle();
     if (session.dirty) {
       this.activate(session);
       const choice = await openDialog<'save' | 'discard' | 'cancel'>('Unsaved changes', h('p', null, `Save your changes to "${session.name}" before closing?`),
         [{ label: 'Cancel', value: 'cancel' }, { label: "Don't save", value: 'discard' }, { label: 'Save', value: 'save', primary: true }], 'cancel');
       if (choice === 'cancel') return;
       if (choice === 'save') {
-        const ok = await this.save();
-        if (!ok) return;
+        const ok = await this.saveSession(session);
+        if (this.session === session) await this.tools.settle();
+        if (!ok || session.dirty) return;
       }
     }
-    if (session.handle) await addClosed(session.name, session.handle, session === this.session ? this.viewer.current : lastPage(`${session.name}:${session.pages.length}`), session.pages.length);
+    // File/drop/clipboard opens can provide a File without a persistent disk handle.
+    // Remember its name and position too; reopening will ask the user to choose that file.
+    const openedFile = [...session.sources.values()].some(source => source.fileBacked || source.blob instanceof File);
+    if (session.handle || openedFile) {
+      const recorded = await addClosed(session.name, session.handle, session === this.session ? this.viewer.current : lastPage(`${session.name}:${session.pages.length}`), session.pages.length, session.tabOrder);
+      if (!recorded) toast(`“${session.name}” closed, but its history entry could not be saved.`, 'error');
+    }
     const i = this.sessions.indexOf(session);
+    if (i < 0) return;
     this.sessions.splice(i, 1);
-    this.journalOff.get(session)?.();
-    this.journalOff.delete(session);
-    void dropJournal(session.id);
+    this.unlisten(session);
     const next = this.sessions[Math.min(i, this.sessions.length - 1)] ?? null;
-    this.activate(next);
+    if (this.session === session) this.activate(next);
     await session.close();
     this.refresh();
   }
 
   /** The window is closing. Offers to save each unsaved document. False means the user cancelled. */
   async closeAllForExit(): Promise<boolean> {
+    await Promise.all([...this.saves.values()].map(job => job.promise));
     for (const s of [...this.sessions]) {
       await this.closeSession(s);
       if (this.sessions.includes(s)) return false;
@@ -908,6 +1229,9 @@ export class App {
   }
 
   async openHandle(handle: FileSystemFileHandle, page?: number) {
+    const allowed = await readableHandle(handle);
+    if (!allowed) { toast(`File access was not granted for “${handle.name}”.`, 'info'); return; }
+    handle = allowed;
     let file: File;
     try { file = await handle.getFile(); }
     catch { toast(`"${handle.name}" could not be read. It may have moved.`, 'error'); return; }
@@ -952,6 +1276,7 @@ export class App {
     }
     await this.importBookmarks(session);
     this.add(session);
+    if (handle) await this.collectionsChanged();
     if (handle) {
       void addRecent(name, handle, session.pages.length);
       const at = getSettings().reopenAtLastPage ? lastPage(`${name}:${session.pages.length}`) : 0;
@@ -976,7 +1301,7 @@ export class App {
     const name = /\.pdf$/i.test(r.title) ? r.title : `${r.title}.pdf`;
     if (r.kind === 'blank') {
       const s = await this.openPdfBlob(makePaperPdf(r), name);
-      if (s) { s.dirty = true; s.emit({ kind: 'meta' }); }
+      if (s) { s.markDirty(); }
       return;
     }
     const s = new Session(name);
@@ -991,9 +1316,9 @@ export class App {
     });
     if (!pages.length) { await s.close(); return; }
     s.pages = pages;
-    s.dirty = true;
+    s.markDirty();
     this.add(s);
-    toast(`Made ${pages.length} page${pages.length > 1 ? 's' : ''}. Press Save to keep them.`, 'ok');
+    toast(`Made ${pages.length} page${pages.length > 1 ? 's' : ''}.`, 'ok');
   }
 
   /** New pages of any paper, from the page editor's + button or the Pages menu. */
@@ -1021,11 +1346,16 @@ export class App {
     const items = [...dt.items].filter(i => i.kind === 'file');
     // Read handles right away. The browser clears drag data once the event ends.
     const handles = items.map(i => i.getAsFileSystemHandle?.() ?? Promise.resolve(null));
-    const files = [...dt.files];
-    for (let i = 0; i < files.length; i++) {
-      const handle = await handles[i]?.catch(() => null);
-      if (handle?.kind === 'file') await this.openHandle(handle as FileSystemFileHandle);
-      else await this.openFile(files[i]);
+    // Tabs open in A–Z order, the way Explorer sorts names ("Part 2" before "Part 10").
+    const dropped = [...dt.files].map((file, i) => ({ file, handle: handles[i] }))
+      .sort((a, b) => byName.compare(a.file.name, b.file.name));
+    for (const { file, handle: pending } of dropped) {
+      const handle = await pending?.catch(() => null);
+      if (handle?.kind === 'file') {
+        // Only the dropped file itself can tell the Windows app where it is; the handle's file cannot.
+        void locateFile(file);
+        await this.openHandle(handle as FileSystemFileHandle);
+      } else await this.openFile(file);
     }
   }
 
@@ -1076,7 +1406,7 @@ export class App {
     }
   }
 
-  async pasteImages(blobs: Blob[], newDocName?: string) {
+  async pasteImages(blobs: Blob[], newDocName?: string, spot?: PageSpot) {
     const style = this.preferredStyle();
     const assets: ImageAsset[] = [];
     for (const blob of blobs) {
@@ -1084,30 +1414,39 @@ export class App {
       catch (err) { toast(`That image could not be read. ${(err as Error).message ?? ''}`, 'error'); }
     }
     if (!assets.length) return;
-    let session = this.session;
+    let session = spot?.session ?? this.session;
+    if (spot && (!this.sessions.includes(spot.session) || !spot.session.pages.includes(spot.page))) return;
     if (!session) {
       session = new Session(newDocName ? `${baseName(newDocName)}.pdf` : 'Pasted images.pdf');
       session.pages = [session.blankPage(595, 842)];
       this.add(session);
     }
     let last: { page: PageRef; annot: Annot } | null = null;
-    for (const asset of assets) {
+    for (const [i, asset] of assets.entries()) {
       const canGrow = session.sources.size === 0;
-      const place = pastePlacement(session, Math.max(this.viewer.current, last ? session.pages.indexOf(last.page) : 0), asset, canGrow);
+      let place;
+      if (spot) {
+        const vp = viewportFor(spot.page, 1), [x, y] = toScreen(vp, ...spot.point);
+        const size = fitSize(asset, vp.width - 24, vp.height - 24);
+        place = { page: spot.page, x: Math.max(12, Math.min(x + i * 14, vp.width - size.w - 12)), y: Math.max(12, Math.min(y + i * 14, vp.height - size.h - 12)), ...size, added: false };
+      } else place = pastePlacement(session, Math.max(this.viewer.current, last ? session.pages.indexOf(last.page) : 0), asset, canGrow);
       if (place.added) session.setPages([...session.pages, place.page], 'Add page');
       const annot = makeImageAnnot(place.page, asset, place.x, place.y, place.w, place.h, this.authorName());
       session.addAnnots(place.page, [annot], 'Paste image');
       last = { page: place.page, annot };
     }
     if (!last) return;
-    this.tools.setTool('select');
     const { page, annot } = last;
-    this.viewer.goTo(session.pages.indexOf(page));
-    // Wait a frame so the page exists on screen before selecting.
-    requestAnimationFrame(() => requestAnimationFrame(() => { this.viewer.select(page.id, annot.id); this.onSelection(); }));
+    if (this.session === session) {
+      this.tools.useReadingTool();
+      this.viewer.goTo(session.pages.indexOf(page));
+      // Wait a frame so the page exists on screen before selecting.
+      requestAnimationFrame(() => requestAnimationFrame(() => { if (this.session === session && session.pages.includes(page)) { this.viewer.select(page.id, annot.id); this.onSelection(); } }));
+    }
     const auto = pasteMode();
     ensureAnalysis(annot.image!).then(async () => {
-      if (auto === 'off') { this.imageBar.hintAfterPaste(annot); this.imageBar.sync(); return; }
+      if (!this.sessions.includes(session!) || !session!.pages.includes(page)) return;
+      if (auto === 'off') { if (this.session === session) { this.imageBar.hintAfterPaste(annot); this.imageBar.sync(); } return; }
       await this.autoConvert(session!, page, annot, auto);
     }).catch(err => console.warn('Image check', err));
   }
@@ -1135,7 +1474,7 @@ export class App {
     const a = makeImageAnnot(page, { blob: new Blob(), original: new Blob(), width: 1, height: 1, theme: 'original', style: 'neutral', keepPhotos: true }, (vp.width - w) / 2, vp.height / 3, w, Math.min(vp.height / 2, lines * 17 + 12));
     const annot: Annot = { ...a, kind: 'text', image: undefined, text, contents: text, fontSize: 12, color: '#111111', textColor: '#111111', author: this.authorName() };
     session.addAnnots(page, [annot], 'Paste text');
-    this.tools.setTool('select');
+    this.tools.useReadingTool();
     this.viewer.select(page.id, annot.id);
     this.onSelection();
   }
@@ -1153,9 +1492,21 @@ export class App {
     this.onSelection();
   }
 
-  async insertImage() {
+  async insertImage(spot?: PageSpot) {
     const files = await pickFiles('image/*', true);
-    if (files.length) await this.pasteImages(files);
+    if (files.length) await this.pasteImages(files, undefined, spot);
+  }
+
+  private insertNote(spot: PageSpot) {
+    if (!this.sessions.includes(spot.session) || !spot.session.pages.includes(spot.page)) return;
+    const style = this.tools.style('note');
+    const a: Annot = { ...style, id: uid(), kind: 'note', rect: noteRect(...spot.point), fill: style.color, author: this.authorName(), created: Date.now() };
+    spot.session.addAnnots(spot.page, [a], 'Add note');
+    if (this.session === spot.session) {
+      this.tools.useReadingTool(); this.viewer.select(spot.page.id, a.id); this.onSelection();
+      const v = this.viewer.views.get(spot.page.id);
+      if (v) this.tools.openCommentEditor(v, a);
+    }
   }
 
   // ---- Right-click menus ----
@@ -1173,7 +1524,7 @@ export class App {
     const annot = node ? page.annots.find(a => a.id === node.getAttribute('data-id')) : null;
     const items: (MenuItem | null)[] = [];
     if (annot) {
-      this.tools.setTool('select');
+      this.tools.useReadingTool();
       this.viewer.select(page.id, annot.id);
       this.onSelection();
       const v = this.viewer.views.get(page.id);
@@ -1196,7 +1547,14 @@ export class App {
         );
       }
       const at = session.pages.indexOf(page);
+      const v = this.viewer.views.get(page.id)!;
+      const r = pageEl!.getBoundingClientRect();
+      const spot: PageSpot = { session, page, point: toPdf(v.vp, e.clientX - r.left, e.clientY - r.top) };
       items.push(
+        { label: 'Insert image…', icon: 'stamper', run: safe(() => this.insertImage(spot), 'Inserting the image') },
+        { label: 'Insert note', icon: 'note', run: () => this.insertNote(spot) },
+        { label: 'Insert voice note…', icon: 'mic', run: safe(() => this.voiceNoteCmd(spot), 'Recording the voice note') },
+        null,
         { label: 'Paste', icon: 'paste', key: 'Ctrl+V', run: () => this.pasteFromClipboard() },
         null,
         { label: 'Rotate page right', icon: 'rotR', run: () => session.rotatePages([page.id], 90) },
@@ -1269,16 +1627,21 @@ export class App {
       if (host) window.getSelection()?.selectAllChildren(host);
       return;
     }
-    if (e.key === ' ' && this.session && this.tools.tool !== 'hand' && !e.repeat) {
+    if (e.key === ' ' && this.session && !e.repeat && !target.closest?.('button, a[href], [role=button]')) {
       e.preventDefault();
       const back = this.tools.tool;
       this.tools.setTool('hand');
-      const up = (u: KeyboardEvent) => {
-        if (u.key !== ' ') return;
+      this.tools.holdPan(true);
+      // Space released, or the window left while it was held: the tool from before comes back.
+      const up = (u: Event) => {
+        if (u instanceof KeyboardEvent && u.key !== ' ') return;
         document.removeEventListener('keyup', up);
-        this.tools.setTool(back);
+        window.removeEventListener('blur', up);
+        this.tools.holdPan(false);
+        if (this.tools.tool === 'hand') this.tools.setTool(back);
       };
       document.addEventListener('keyup', up);
+      window.addEventListener('blur', up);
       return;
     }
     if (ctrl && e.code === 'KeyC') {
@@ -1290,7 +1653,8 @@ export class App {
     if (e.key === 'Escape' && this.pageEditor.isOpen) { this.pageEditor.close(); return; }
     if (e.key === 'Escape') {
       this.tools.cancel();
-      if (this.tools.tool !== 'select') this.tools.setTool('select');
+      if (this.speaking) this.stopReading();
+      else if (this.tools.tool !== REST_TOOL) this.tools.setTool(REST_TOOL);
       else if (this.viewer.selection) { this.viewer.select(null); this.onSelection(); }
       else if (this.mode !== 'view') this.setMode('view');
       return;
@@ -1333,7 +1697,7 @@ export class App {
       if (!s) return;
       this.pageEditor.close();
       if (this.mode !== mode) this.setMode(mode);
-      this.tools.setTool(this.tools.tool === t ? 'select' : t);
+      this.tools.setTool(this.tools.tool === t ? REST_TOOL : t);
     };
     switch (id) {
       case 'next-tab': case 'prev-tab':
@@ -1348,7 +1712,7 @@ export class App {
       case 'zoom-out': this.zoomBy(0.85); return;
       case 'fit-page': if (s) this.viewer.setFit('page'); return;
       case 'close-tab': if (s) void this.closeSession(s).catch(err => reportError('Closing', err)); return;
-      case 'pan': if (s) this.tools.setTool(this.tools.tool === 'hand' ? 'select' : 'hand'); return;
+      case 'pan': if (s) this.tools.setTool('hand'); return;
       case 'sticky': toolIn('edit', 'note'); return;
       case 'highlight': toolIn('edit', 'highlight'); return;
       case 'underline': toolIn('edit', 'underline'); return;
@@ -1525,10 +1889,37 @@ export class App {
   async save(saveAs = false): Promise<boolean> {
     const session = this.session;
     if (!session) return false;
-    await this.tools.settle();
+    return this.saveSession(session, saveAs);
+  }
+
+  private saveSession(session: Session, saveAs = false): Promise<boolean> {
+    const current = this.saves.get(session);
+    if (current) { current.again = true; current.saveAs ||= saveAs; return current.promise; }
+    const job = { promise: Promise.resolve(false), again: false, saveAs: false };
+    this.saves.set(session, job);
+    this.setStatus(this.saves.size > 1 ? `Saving ${this.saves.size} documents…` : `Saving ${session.name}…`);
+    job.promise = (async () => {
+      let result: boolean;
+      do {
+        job.again = false;
+        result = await this.saveOnce(session, saveAs).catch(err => { reportError('Saving', err); return false; });
+        saveAs = job.saveAs;
+        job.saveAs = false;
+      } while (result && job.again && this.sessions.includes(session));
+      return result;
+    })().finally(() => {
+      this.saves.delete(session);
+      this.setStatus(this.saves.size ? `Saving ${this.saves.size} document${this.saves.size > 1 ? 's' : ''}…` : '');
+    });
+    return job.promise;
+  }
+
+  private async saveOnce(session: Session, saveAs: boolean): Promise<boolean> {
+    if (this.session === session) await this.tools.settle();
+    await this.styleChanges;
     // A form answer still being typed counts: leaving the box hands it to the document.
     const typingIn = document.activeElement as HTMLElement | null;
-    if (typingIn?.matches?.('.own-field-ctl, .widgets .field')) typingIn.blur();
+    if (this.session === session && typingIn?.matches?.('.own-field-ctl, .widgets .field')) typingIn.blur();
     let dest: FileSystemFileHandle | 'download' | null = saveAs ? null : session.handle;
     if (dest && !saveAs) {
       const ok = (await dest.queryPermission?.({ mode: 'readwrite' })) === 'granted' || (await dest.requestPermission?.({ mode: 'readwrite' })) === 'granted';
@@ -1538,30 +1929,26 @@ export class App {
       dest = await this.destination(session.name);
       if (!dest) return false;
     }
-    const prog = progressDialog('Saving', false);
     try {
-      const options: BuildOptions = { ...session.pendingOptions };
-      const { blob, warnings } = await buildFile(session, options, session.pages, p => prog.set(p, 'Building the file…'));
-      prog.set(1, 'Writing to disk…');
+      const revision = session.revision;
+      const [snapshot] = await Promise.all([session.snapshotForSave(), session.preserveSources()]);
+      const { blob, warnings } = await buildFile(snapshot, snapshot.pendingOptions);
       try {
         await this.writeTo(dest, blob, session.name);
       } catch (err) {
-        prog.close();
         const next = await this.rescueSave(blob, session.name, err as Error);
         if (!next) return false;
         dest = next;
       }
-      if (dest !== 'download') await this.afterSave(session, dest);
-      else { session.dirty = false; session.emit({ kind: 'meta' }); }
-      void dropJournal(session.id);
-      toast(`Saved ${session.name} (${formatSize(blob.size)}).`, 'ok');
-      if (warnings.length) void alertDialog('Saved, with notes', warnings.slice(0, 12).join('\n'));
+      if (dest !== 'download') await this.afterSave(session, dest, revision);
+      else { session.dirty = session.revision !== revision; session.emit({ kind: 'meta' }); }
+      if (!session.dirty) void dropJournal(session.id);
+      toast(`Saved ${session.name} (${formatSize(blob.size)}).${session.dirty ? ' Newer edits remain unsaved.' : ''}`, 'ok');
+      if (warnings.length) toast(warnings.slice(0, 3).join(' '), 'info', 8000);
       return true;
     } catch (err) {
       reportError('Saving', err);
       return false;
-    } finally {
-      prog.close();
     }
   }
 
@@ -1578,32 +1965,12 @@ export class App {
     return next;
   }
 
-  /** Re-opens from disk. Edits are now in the file, and memory for them is released. */
-  private async afterSave(session: Session, handle: FileSystemFileHandle) {
-    const file = await handle.getFile();
-    rememberHandle(file, handle);
-    const page = this.viewer.current;
-    const scale = this.viewer.scale, fit = this.viewer.fit;
-    const oldPassword = session.pendingOptions.removePassword ? undefined : session.pendingOptions.encrypt?.userPassword ?? [...session.sources.values()].find(s => s.password)?.password;
-    this.viewer.attach(null);
-    for (const s of session.sources.values()) await s.close();
-    session.sources.clear();
+  /** Saving keeps the working document and its undo/redo history intact. */
+  private async afterSave(session: Session, handle: FileSystemFileHandle, revision: number) {
     session.handle = handle;
     session.name = handle.name;
-    session.pendingOptions = {};
-    session.ocrWords.clear();
-    session.bookmarks = [];
-    session.attachments = [];
-    session.pages = await session.addSource(file, handle.name, async retry => (retry ? askPassword(handle.name, true) : oldPassword ?? askPassword(handle.name, false)));
-    session.clearHistory();
-    session.dirty = false;
-    this.viewer.fit = fit;
-    this.viewer.scale = scale;
-    this.viewer.attach(session);
-    this.viewer.goTo(page);
-    await this.importBookmarks(session);
-    this.panels.attach(session);
-    this.pageEditor.attach();
+    session.dirty = session.revision !== revision;
+    session.emit({ kind: 'meta' });
     this.refresh();
     void addRecent(handle.name, handle, session.pages.length);
   }
@@ -1763,9 +2130,9 @@ export class App {
     }
     if (!pages.length) return;
     s.pages = pages;
-    s.dirty = true;
+    s.markDirty();
     this.add(s);
-    toast(`Made ${pages.length} page${pages.length > 1 ? 's' : ''}. Press Save to keep them.`, 'ok');
+    toast(`Made ${pages.length} page${pages.length > 1 ? 's' : ''}.`, 'ok');
   }
 
   async extractPages() {
@@ -1879,7 +2246,7 @@ export class App {
 
   /** Opening an Office file shows it as a PDF, ready to read, mark up and save. */
   async openOffice(file: File) {
-    if (!canPrintToPdf()) { toast('Office files open in the PDFy desktop app.', 'info'); return; }
+    if (!canPrintToPdf()) { toast('Office files open in the Meletiq PDF desktop app.', 'info'); return; }
     const blob = await this.withProgress(`Converting ${file.name}`, async p => {
       p.set(0.3, 'Reading the file…');
       const job = await officeToPrint(file);
@@ -1888,7 +2255,7 @@ export class App {
     });
     if (!blob) return;
     const s = await this.openPdfBlob(blob, `${baseName(file.name)}.pdf`);
-    if (s) { s.dirty = true; s.emit({ kind: 'meta' }); }
+    if (s) { s.markDirty(); }
   }
 
   async officeToPdf() {
@@ -1897,7 +2264,7 @@ export class App {
   }
 
   async webToPdf() {
-    if (!canPrintToPdf()) { toast('This works in the PDFy desktop app.', 'info'); return; }
+    if (!canPrintToPdf()) { toast('This works in the Meletiq PDF desktop app.', 'info'); return; }
     const f = await formDialog('Web page to PDF', [
       { key: 'url', label: 'Web address', type: 'text', placeholder: 'https://example.com' },
       { key: 'size', label: 'Page size', type: 'select', value: 'a4', options: [{ value: 'a4', label: 'A4' }, { value: 'letter', label: 'Letter' }, { value: 'wide', label: 'A4 landscape' }] },
@@ -1914,7 +2281,7 @@ export class App {
     let name = 'Web page';
     try { name = new URL(url).hostname; } catch { /* Keeps the plain name. */ }
     const s = await this.openPdfBlob(blob, `${name}.pdf`);
-    if (s) { s.dirty = true; s.emit({ kind: 'meta' }); }
+    if (s) { s.markDirty(); }
   }
 
   private pendingAttachment: Annot['attachment'] | null = null;
@@ -1924,18 +2291,25 @@ export class App {
     if (!f) return;
     this.pendingAttachment = { name: f.name, mime: f.type, blob: f };
     this.tools.setTool('attach');
-    toast(`Click where "${f.name}" should be pinned.`, 'info');
   }
 
   /** Records from the microphone, lets you listen back, then the voice note is pinned like any file. */
-  async voiceNoteCmd() {
+  async voiceNoteCmd(spot?: PageSpot) {
     const blob = await recordVoice();
     if (!blob) return;
     const when = new Date();
     const stamp = `${when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} ${when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
-    this.pendingAttachment = { name: `Voice note ${stamp.replace(/[\\/:*?"<>|]/g, '-')}.webm`, mime: blob.type, blob, voice: true };
+    const attachment = { name: `Voice note ${stamp.replace(/[\\/:*?"<>|]/g, '-')}.webm`, mime: blob.type, blob, voice: true };
+    if (spot) {
+      if (!this.sessions.includes(spot.session) || !spot.session.pages.includes(spot.page)) return;
+      const [x, y] = spot.point;
+      const a: Annot = { id: uid(), kind: 'attachment', rect: [x - 10, y - 12, x + 10, y + 12], attachment, contents: attachment.name, opacity: 1, width: .75, color: '#c9e4ff', author: this.authorName(), created: Date.now() };
+      spot.session.addAnnots(spot.page, [a], 'Add voice note');
+      if (this.session === spot.session) { this.tools.useReadingTool(); this.viewer.select(spot.page.id, a.id); this.onSelection(); }
+      return;
+    }
+    this.pendingAttachment = attachment;
     this.tools.setTool('attach');
-    toast('Click where the voice note should be pinned. Click the note later to play it.', 'info', 5000);
   }
 
   /** The bytes of a pinned file, whether it was added now or was already in the PDF. */
@@ -1989,7 +2363,7 @@ export class App {
         const blob = await this.withProgress('Making the PDF', async p => { p.set(0.5, 'Laying out the pages…'); return printToPdf({ html, ...page }); });
         if (blob) {
           const s = await this.openPdfBlob(blob, name);
-          if (s) { s.dirty = true; s.emit({ kind: 'meta' }); toast('Opened as a PDF behind this window.', 'ok'); }
+          if (s) { s.markDirty(); toast('Opened as a PDF behind this window.', 'ok'); }
         }
       },
       pickImage: async () => (await pickFiles('image/*'))[0],
@@ -2118,7 +2492,7 @@ export class App {
     if (!s) return;
     const f = await formDialog('Save as PDF/A', [
       { key: 'level', label: 'Level', type: 'select', value: '2B', options: [{ value: '1B', label: 'PDF/A-1b (oldest, strictest)' }, { value: '2B', label: 'PDF/A-2b (recommended)' }, { value: '3B', label: 'PDF/A-3b (allows attachments)' }] },
-    ], 'Save', 'Adds the archive label and colour profile. Text you added in PDFy uses standard fonts that are not embedded, so strict validators may flag those. Check the result with Check file.');
+    ], 'Save', 'Adds the archive label and colour profile. Text you added in Meletiq PDF uses standard fonts that are not embedded, so strict validators may flag those. Check the result with Check file.');
     if (!f) return;
     await this.exportFile(`${baseName(s.name)}-pdfa.pdf`, PDF_TYPES, 'Saving as PDF/A', async p =>
       (await buildFile(s, { pdfa: f.level as '1B', removePassword: true }, s.pages, x => p.set(x, 'Building the file…'))).blob);
@@ -2138,7 +2512,7 @@ export class App {
     if (n) toast(`Redacted ${n} page${n > 1 ? 's' : ''}. Save to make it final.`, 'ok');
   }
 
-  tellRedactionsMarked(n: number) { toast(`Marked ${n} result${n > 1 ? 's' : ''}. Press Apply redactions on the Edit tab to remove them.`, 'ok'); }
+  tellRedactionsMarked(n: number) { toast(`Marked ${n} result${n > 1 ? 's' : ''}.`, 'ok'); }
 
   // ---- Stamps and signatures ----
 
@@ -2160,7 +2534,6 @@ export class App {
     const colour = STAMPS.find(x => x[0] === text)?.[1];
     if (colour) this.tools.setStyle({ color: colour }, 'stamp');
     this.tools.setTool('stamp');
-    toast('Click where the stamp should go.', 'info');
   }
 
   async chooseSignature() {
@@ -2168,7 +2541,6 @@ export class App {
     if (!blob) return;
     this.signature = await assetFromBlob(blob);
     this.tools.setTool('signature');
-    toast('Click where the signature should go.', 'info');
   }
 
   private loadMeasure(): { unit: string; scale: number } {
@@ -2310,7 +2682,6 @@ export class App {
     this.pendingSign = { id, reason: String(f.reason), location: String(f.location) };
     if (f.visible) {
       this.tools.setTool('cert-box');
-      toast('Drag where the signature box should appear.', 'info', 5000);
     } else {
       await this.signWithId(s.pages[this.viewer.current], null);
     }
@@ -2539,25 +2910,54 @@ export class App {
     const s = this.session;
     if (!s) return;
     if (!('speechSynthesis' in window)) { toast('Read aloud is not available on this PC.', 'info'); return; }
-    if (this.speaking) { speechSynthesis.cancel(); this.speaking = false; toast('Stopped reading.', 'info'); return; }
-    this.speaking = true;
-    toast('Reading from this page. Press Read aloud again to stop.', 'info');
-    for (let i = this.viewer.current; i < s.pages.length && this.speaking; i++) {
-      const page = s.pages[i];
-      const src = page.source ? s.sources.get(page.source) : null;
-      if (!src) continue;
-      const lines = await linesOf(src.pdf, page.index);
-      const text = lines.map(l => l.text).join(' ').trim();
-      if (!text) continue;
-      this.viewer.goTo(i);
-      await new Promise<void>(res => {
-        const u = new SpeechSynthesisUtterance(text);
-        u.onend = () => res();
-        u.onerror = () => res();
-        speechSynthesis.speak(u);
-      });
+    if (this.speaking) { this.stopReading(); return; }
+    const run = ++this.speechRun;
+    const live = () => run === this.speechRun && this.session === s;
+    this.setSpeaking(true);
+    try {
+      for (let i = this.viewer.current; i < s.pages.length && live(); i++) {
+        const page = s.pages[i];
+        const src = page.source ? s.sources.get(page.source) : null;
+        if (!src) continue;
+        const lines = await linesOf(src.pdf, page.index);
+        // Stopped, or another document opened, while the page text was being read.
+        if (!live()) return;
+        const text = lines.map(l => l.text).join(' ').trim();
+        if (!text) continue;
+        this.viewer.goTo(i);
+        await new Promise<void>(res => {
+          const u = new SpeechSynthesisUtterance(text);
+          // Stop ends this wait itself: Windows does not always report a cancelled voice.
+          const done = () => {
+            u.onend = u.onerror = null;
+            if (this.speechWait?.done === done) this.speechWait = null;
+            res();
+          };
+          u.onend = done;
+          u.onerror = done;
+          this.speechWait = { run, done };
+          speechSynthesis.speak(u);
+        });
+      }
+    } finally {
+      if (run === this.speechRun) this.setSpeaking(false);
     }
-    this.speaking = false;
+  }
+
+  /** Stops Read aloud at once, including a reading still waiting for its page text. */
+  stopReading() {
+    if (!this.speaking) return;
+    const wait = this.speechWait?.run === this.speechRun ? this.speechWait : null;
+    this.speechRun++;
+    speechSynthesis.cancel();
+    wait?.done();
+    this.setSpeaking(false);
+  }
+
+  private setSpeaking(on: boolean) {
+    this.speaking = on;
+    this.speechBar.hidden = !on;
+    this.syncRibbon();
   }
 
   // ---- Search highlights ----
@@ -2600,34 +3000,256 @@ export class App {
   /** Right-click on a document tab. */
   private tabMenu(e: MouseEvent, s: Session) {
     showMenu(e.clientX, e.clientY, [
+      { label: 'Reload from disk', icon: 'rotR', run: () => this.reloadFromDisk(s) },
+      { label: 'Copy file path', icon: 'copy', run: () => this.copyFilePath(s) },
       { label: 'Add to collection…', icon: 'folder', run: () => this.addToCollection(s) },
+      s.collectionId ? { label: 'Remove from group', icon: 'folder', run: () => this.moveToCollection(s, null) } : null,
       { label: 'Close', icon: 'close', key: keyLabel('close-tab'), run: () => this.closeSession(s) },
       this.sessions.length > 1 ? { label: 'Close the others', icon: 'close', run: async () => { for (const o of [...this.sessions]) if (o !== s) await this.closeSession(o); } } : null,
     ].filter(Boolean) as MenuItem[]);
+  }
+
+  /** The file on disk a tab came from: its handle, or the dropped or pasted file itself. Never a generated or converted one. */
+  private diskFile(s: Session): FileSystemFileHandle | File | null {
+    if (s.handle) return s.handle;
+    if (s.reloadHandle) return s.reloadHandle;
+    const first = [...s.sources.values()][0];
+    return first?.blob instanceof File && first.name === s.name ? first.blob : null;
+  }
+
+  /** Puts the full path of the tab's file on the clipboard. */
+  async copyFilePath(s = this.session) {
+    if (!s) return;
+    const of = this.diskFile(s);
+    if (!of) { toast(`“${s.name}” is not on disk yet. Save it first.`, 'info', 5000); return; }
+    let r = of instanceof File ? await locateFile(of) : await locateHandle(of);
+    // Opened before PDFy kept locations: the user points at the same file once.
+    if (r.error === 'unknown' && !(of instanceof File)) {
+      toast(`Meletiq PDF does not know where “${s.name}” is yet. Choose that same file once in the window that opens.`, 'info', 7000);
+      r = await confirmSameFile(of);
+    }
+    if (r.error === 'cancelled') return;
+    if (!r.ok || !r.path) { toast(locationProblem(r, s.name), r.error === 'unsupported' ? 'info' : 'error', 6000); return; }
+    try { await navigator.clipboard.writeText(r.path); }
+    catch {
+      // Right after a file window closes the page may not have focus back yet.
+      window.focus();
+      await new Promise(done => setTimeout(done, 100));
+      try { await navigator.clipboard.writeText(r.path); }
+      catch { toast(`The path could not be copied. It is: ${r.path}`, 'error', 10000); return; }
+    }
+    toast(`Copied: ${r.path}`, 'ok');
+  }
+
+  /** Reads the tab's file again, for changes another program made. Clicking again while it runs does nothing more. */
+  reloadFromDisk(s = this.session): Promise<void> {
+    if (!s) return Promise.resolve();
+    const current = this.reloads.get(s);
+    if (current) return current;
+    const job = this.reloadOnce(s).catch(err => reportError('Reloading', err)).finally(() => this.reloads.delete(s));
+    this.reloads.set(s, job);
+    return job;
+  }
+
+  private async reloadOnce(s: Session) {
+    if (this.session === s) await this.tools.settle();
+    await this.styleChanges;
+    await this.saves.get(s)?.promise;
+    if (this.session === s) await this.tools.settle();
+    if (!this.sessions.includes(s) || this.closing.has(s)) return;
+    const originalHandle = s.handle, originalName = s.name;
+    let handle = s.handle ?? s.reloadHandle;
+    if (!handle) {
+      const of = this.diskFile(s);
+      if (!(of instanceof File)) { toast(`“${s.name}” has no file on disk to reload from. Save it first.`, 'info', 5000); return; }
+      // A dropped or pasted file: the Windows app finds it and hands back a handle to read it again.
+      const r = await locateFile(of);
+      if (!r.ok || !r.handle) { toast(locationProblem(r, s.name), r.error === 'unsupported' ? 'info' : 'error', 6000); return; }
+      handle = r.handle;
+    }
+    if (s.dirty && !await confirmDialog(`Reload “${s.name}”?`, 'Your unsaved changes to this document will be lost, and Undo starts afresh.', 'Reload', true)) return;
+    const revision = s.revision;
+    const allowed = await readableHandle(handle);
+    if (!allowed) { toast(`File access was not granted for “${s.name}”. The tab was left as it was.`, 'info'); return; }
+    handle = allowed;
+    let file: File;
+    try { file = await handle.getFile(); }
+    catch { toast(`“${s.name}” could not be read. It may have been moved or deleted.`, 'error'); return; }
+    // A separate document, so opening the same file again is not mistaken for the open tab.
+    const fresh = new Session(s.name);
+    try {
+      this.setStatus(`Reloading ${s.name}…`);
+      fresh.pages = await fresh.addSource(file, file.name, retry => askPassword(s.name, retry));
+      await this.importBookmarks(fresh);
+    } catch (err) {
+      await fresh.close();
+      if (!(err instanceof PdfOpenError && err.kind === 'password-cancelled')) await alertDialog('Could not reload', `${s.name}\n\n${(err as Error).message}`);
+      return;
+    } finally {
+      this.setStatus('');
+    }
+    if (this.session === s) await this.tools.settle();
+    await this.styleChanges;
+    let sameFile = false;
+    try {
+      const now = await handle.getFile();
+      sameFile = now.lastModified === file.lastModified && now.size === file.size;
+    } catch { /* A moved or changed backing file must not replace the working document. */ }
+    // Closed, saved, moved or edited meanwhile: the tab keeps what it has.
+    const i = this.sessions.indexOf(s);
+    if (i < 0 || this.closing.has(s) || this.saves.has(s) || s.revision !== revision || s.handle !== originalHandle || s.name !== originalName || !sameFile) {
+      await fresh.close();
+      if (i >= 0) toast(`“${s.name}” changed while reloading, so it was left as it was.`, 'info');
+      return;
+    }
+    rememberHandle(file, handle);
+    fresh.handle = originalHandle ? handle : null;
+    fresh.reloadHandle = originalHandle ? null : handle;
+    fresh.tabOrder = s.tabOrder;
+    fresh.collectionId = s.collectionId;
+    this.sessions[i] = fresh;
+    this.unlisten(s);
+    this.listen(fresh);
+    if (this.session === s) {
+      const page = this.viewer.current;
+      this.activate(fresh);
+      this.viewer.goTo(Math.min(page, fresh.pages.length - 1));
+    } else this.drawTabs();
+    await s.close();
+    void addRecent(fresh.name, handle, fresh.pages.length);
+    toast(`Reloaded ${fresh.name}.`, 'ok');
   }
 
   /** Puts the document into one or more collections on the Home screen. */
   async addToCollection(s = this.session) {
     if (!s) return;
     if (!s.handle) { toast('Save the document first. A collection keeps a link to the file on disk.', 'info', 5000); return; }
-    await this.home.chooseCollectionFor({ name: s.name, handle: s.handle });
+    const collection = await this.home.chooseCollectionFor({ name: s.name, handle: s.handle });
+    if (collection !== undefined) {
+      s.collectionId = collection;
+      if (collection) this.ungroupedTabs.delete(s); else this.ungroupedTabs.add(s);
+      await this.collectionsChanged();
+    }
+  }
+
+  /** Open a library selection in saved order; failures stay available for retry. */
+  async openLibraryFiles(files: HomeFile[]): Promise<string[]> {
+    if (!files.length) return [];
+    await this.orderWrites;
+    let entries = [...files];
+    const collection = entries[0]?.collection;
+    if (collection) {
+      const saved = new Map((await listItems(collection)).map(item => [item.id, item.order ?? item.added]));
+      entries = entries.map(file => ({ ...file, order: saved.get(file.id) ?? file.order }));
+    }
+    entries.sort((a, b) => a.order - b.order);
+    // Ask for every stored file's access first, while the click that started this still counts.
+    const allowed = new Set<HomeFile>();
+    for (const entry of entries) {
+      const handle = entry.handle;
+      if (!handle) continue;
+      try {
+        const readable = await readableHandle(handle);
+        if (readable) { entry.handle = readable; allowed.add(entry); }
+      } catch { /* Counted as failed below; the entry is kept. */ }
+    }
+    const located = new Map<string, { file: File; handle: FileSystemFileHandle | null }>();
+    if (entries.some(file => !file.handle)) {
+      try {
+        if (window.showOpenFilePicker) {
+          const handles = await window.showOpenFilePicker({ multiple: true, types: PDF_TYPES });
+          for (const handle of handles) {
+            try { const file = await handle.getFile(); located.set(file.name, { file, handle }); }
+            catch { /* Other selected files can still open. */ }
+          }
+        } else {
+          for (const file of await pickFiles('.pdf', true)) located.set(file.name, { file, handle: null });
+        }
+      } catch (error) { if ((error as Error).name === 'AbortError') return []; throw error; }
+    }
+    const ids: string[] = [], opened: Session[] = [], failed: string[] = [];
+    for (const entry of entries) {
+      try {
+        if (entry.handle && !allowed.has(entry)) { failed.push(entry.name); continue; }
+        const found = entry.handle ? { file: await entry.handle.getFile(), handle: entry.handle } : located.get(entry.name);
+        if (!found) { failed.push(entry.name); continue; }
+        let session: Session | null | undefined;
+        if (entry.closed) session = await this.reopenClosedFile(entry.closed, found);
+        else {
+          if (found.handle) rememberHandle(found.file, found.handle);
+          session = await this.openPdfBlob(found.file, found.file.name, found.handle);
+        }
+        if (session) { ids.push(entry.id); if (!opened.includes(session)) opened.push(session); }
+        else failed.push(entry.name);
+      } catch { failed.push(entry.name); }
+    }
+    // Reuse already-open documents and restore only the selected tab slots, leaving other tabs in place.
+    // A tab closed while later files were still loading stays closed.
+    const live = opened.filter(s => this.sessions.includes(s));
+    if (live.length) {
+      const chosen = new Set(live); let at = 0;
+      this.sessions = this.sessions.map(s => chosen.has(s) ? live[at++] : s);
+      if (collection) {
+        for (const s of live) { s.collectionId = collection; this.ungroupedTabs.delete(s); }
+        const group = this.tabGroups.get(collection);
+        if (group) { group.collapsed = false; void updateCollection(group); }
+      }
+      this.keepCollectionTabsTogether();
+      this.updateTabOrder(); this.drawTabs();
+    }
+    if (failed.length) toast(`Could not open ${failed.slice(0, 3).map(name => `“${name}”`).join(', ')}${failed.length > 3 ? ` and ${failed.length - 3} more` : ''}. Their entries were kept.`, 'error', 6000);
+    return ids;
   }
 
   /** Opens the document closed most recently, at the page it was on. */
   async reopenClosed() {
     const [last] = await listClosed();
     if (!last) { toast('No recently closed documents.', 'info'); return; }
-    const ok = (await last.handle.queryPermission?.({ mode: 'read' })) === 'granted' || (await last.handle.requestPermission?.({ mode: 'read' })) === 'granted';
-    if (!ok) return;
+    await this.reopenClosedFile(last);
+  }
+
+  /** A closed entry stays in the list until its document has actually opened. */
+  async reopenClosedFile(last: ClosedFile, located?: { file: File; handle: FileSystemFileHandle | null }) {
+    let handle = last.handle;
+    let file: File;
+    if (located) { file = located.file; handle = located.handle; }
+    else if (!handle) {
+      toast(`Choose “${last.name}” to reopen it.`, 'info');
+      try {
+        if (window.showOpenFilePicker) {
+          [handle] = await window.showOpenFilePicker({ multiple: false, types: PDF_TYPES });
+          if (!handle) return;
+          file = await handle.getFile();
+        } else {
+          [file] = await pickFiles('.pdf', false);
+          if (!file) return;
+        }
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') return;
+        throw error;
+      }
+      if (file.name !== last.name) { toast(`Choose “${last.name}” to reopen this entry.`, 'info'); return; }
+    } else {
+      const allowed = await readableHandle(handle);
+      if (!allowed) { toast(`File access was not granted for “${last.name}”. Its history entry is still available.`, 'info'); return; }
+      handle = allowed;
+      try { file = await handle.getFile(); }
+      catch { toast(`“${last.name}” could not be opened. It may have moved or been deleted.`, 'error'); return; }
+    }
+    if (handle) rememberHandle(file, handle);
+    this.hideHome();
+    const opened = await this.openPdfBlob(file, last.name, handle);
+    if (!opened) return;
+    this.viewer.goTo(Math.min(last.page, opened.pages.length - 1));
     await removeClosed(last.id);
-    await this.openHandle(last.handle, last.page);
+    return opened;
   }
 
   private async checkRecovery() {
     const journals = await listJournals();
     if (!journals.length) return;
     const ok = await openDialog('Recover your work?',
-      h('div', null, h('p', null, 'PDFy did not close normally. These documents have unsaved changes:'),
+      h('div', null, h('p', null, 'Meletiq PDF did not close normally. These documents have unsaved changes:'),
         h('ul', { class: 'plain-list' }, ...journals.map(j => h('li', null, j.name)))),
       [{ label: 'Discard', value: false }, { label: 'Recover', value: true, primary: true }], false);
     for (const j of journals) {
@@ -2645,6 +3267,13 @@ export class App {
   private async recover(j: Journal) {
     const session = new Session(j.name);
     session.handle = j.handle;
+    for (const attachment of j.attachments ?? []) {
+      const blob = await loadAsset(attachment.asset);
+      if (!blob) throw new Error(`The recovered attachment "${attachment.name}" could not be read.`);
+      session.attachments.push({ name: attachment.name, blob });
+    }
+    session.ocrWords = new Map(j.ocrWords ?? []);
+    session.pendingOptions = j.pendingOptions ?? {};
     const map = new Map<string, string>();
     const missing: string[] = [];
     for (const src of j.sources) {
@@ -2683,7 +3312,7 @@ export class App {
     }
     session.pages = pages;
     session.bookmarks = j.bookmarks;
-    session.dirty = true;
+    session.markDirty();
     this.add(session);
     if (missing.length) toast(`Could not find: ${missing.join(', ')}. Those pages are blank, and your edits on them were kept.`, 'error', 9000);
     else toast(`Recovered ${j.name}.`, 'ok');

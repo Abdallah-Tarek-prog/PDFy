@@ -86,7 +86,7 @@ Laid out like the Xodo app installed on this PC (Xodo 6.3.4, the Microsoft Store
 | Moving around | Ctrl+wheel and touchpad pinch zoom at the pointer, middle-button drag, one-finger move and two-finger pinch on touch screens, optional wheel-zooms setting | ✅ simulated events; 🔵 not yet tried on a real touchpad or touch screen |
 | Settings window | Six clear sections. Interface themes as live pictures, applied with one click. Make your own theme from five colours, with a readability warning | ✅ |
 | Feature guide | Twelve illustrated steps on what PDFy does differently. Opens on the first start and once after each update. Also in Settings and More | ✅ |
-| Collections | Put PDFs into named, coloured collections on Home. Only a link is kept, never a copy | ✅ |
+| Collections | Named, coloured collections on Home also appear as collapsible tab groups. Rename or recolour a group, drag documents between groups, or close a group while keeping its saved file links. Only a link is kept, never a copy | ✅ |
 | Wording | Status texts are full sentences | ✅ |
 
 ## 1b. Study tools (added 2026-11-05)
@@ -138,8 +138,10 @@ Source: xodo.com tool list and the Xodo app store listings.
 | Feature | Status |
 |---|---|
 | Open with Windows "Open with" or the command line | ✅ |
-| Open by file dialog and by drag and drop | ✅ dialog; 🔵 drag and drop |
-| Multiple documents in tabs | ✅ |
+| One window: a PDF opened from Explorer while PDFy runs becomes a tab in the open window | ✅ real exe, 14 checks |
+| Files opened or dropped together open A–Z ("Part 2" before "Part 10") | ✅ real exe; drop tested with a simulated drop, not a real mouse drag |
+| Open by file dialog and by drag and drop | ✅ dialog; 🔵 drag and drop with a real mouse |
+| Multiple documents in tabs, each retaining its page, both scroll offsets, zoom and layout when switching | ✅ |
 | Continuous, single-page and two-page views | ✅ |
 | Zoom: fit width, fit page, custom | ✅ |
 | Zoom with Ctrl+wheel | ✅ |
@@ -293,6 +295,7 @@ Adobe's own matrix could not be fully read, so treat this list as close, not exh
 | Failed save loses nothing | Tested by forcing a save to fail. Work stays safe, and it offers another place | ✅ |
 | Work is recovered after a crash | Forced a crash in the real exe. The document came back, marked unsaved | ✅ |
 | Engine crash is survived | Window stays open and reloads | ✅ |
+| Crash log | `%LOCALAPPDATA%\PDFy\pdfy.log`: page errors, engine crashes with memory at the time, failed starts, sessions that did not close normally with Windows' own crash note. Under 1 MB on disk; crash dumps kept to the newest 4 | ✅ real exe |
 | Closing asks about unsaved work | Tested in the real exe | ✅ |
 
 **Honest numbers on size and memory**
@@ -308,7 +311,8 @@ Adobe's own matrix could not be fully read, so treat this list as close, not exh
 
 - **Theme engine and geometry:** 26 automatic tests (`npm test`).
 - **Every toolbar and menu command through its real dialog:** 22 tests, with stand-ins only for Windows' own file pickers (`node tests/browser-run.mjs --commands`).
-- **Features:** 59 tests run inside the app in a hidden Edge window. Most save a real file and read it back with a fresh engine (`node tests/browser-run.mjs`).
+- **One window, A–Z order, crash log, minimise:** 14 tests in the real exe, beside an open PDFy (`node tests/instance-test.mjs`).
+- **Features:** 60 tests run inside the app in a hidden Edge window. Most save a real file and read it back with a fresh engine (`node tests/browser-run.mjs`).
 - **The real PDFy.exe:** 22 tests, including a forced crash, saving back to disk, and Office files through the real print engine (`node tests/host-test.mjs`).
 - **By eye:** screenshots of the tabs, dialogs, panels and themes.
 - **Real clipboard:** 6 tests of real Ctrl+V in the real app, for pictures and words (`node tests/clipboard-test.mjs`).

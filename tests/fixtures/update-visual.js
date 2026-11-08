@@ -44,7 +44,7 @@ try {
   app.setMode('edit');
   app.tools.setTool('pen');
   await shot('u05-edit-toolbar', 500);
-  app.tools.setTool('select');
+  app.tools.setTool('hand');
   app.setMode('view');
 
   // Page editor.

@@ -85,7 +85,7 @@ await test('Cancelling another pointer leaves the pen working; cancelling the pe
 
 await test('A finger continues panning after a pinch without jumping', async () => {
   const page = await openFixture();
-  app.setMode('view'); app.tools.setTool('select');
+  app.setMode('view'); app.tools.setTool('hand');
   const { x, y } = point(page), sc = app.viewer.scroller;
   pointer('pointerdown', 91, 'touch', x - 40, y, sc);
   pointer('pointermove', 91, 'touch', x - 40, y - 20);
@@ -104,7 +104,7 @@ await test('A finger continues panning after a pinch without jumping', async () 
 
 await test('Losing focus ends panning so the next drag starts normally', async () => {
   const page = await openFixture();
-  app.setMode('view'); app.tools.setTool('select');
+  app.setMode('view'); app.tools.setTool('hand');
   const { x, y } = point(page), sc = app.viewer.scroller;
   pointer('pointerdown', 101, 'mouse', x, y, sc, 1);
   pointer('pointermove', 101, 'mouse', x, y - 30);

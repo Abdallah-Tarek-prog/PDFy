@@ -24,6 +24,7 @@ export function exportXfdf(session: Session): string {
         `width="${n(a.width)}"`, `name="${a.id}"`, `title="${esc(a.author ?? '')}"`,
       ];
       if (a.fill) attrs.push(`interior-color="${a.fill.toUpperCase()}"`);
+      if (a.marker) attrs.push('intent="FreehandHighlight"');
       if (a.quads) attrs.push(`coords="${a.quads.flat().map(n).join(',')}"`);
       if (a.kind === 'line' || a.kind === 'arrow' || a.kind === 'measure') {
         const p = a.pts ?? [];
@@ -82,6 +83,7 @@ export function importXfdf(session: Session, xml: string): number {
       for (let i = 0; i + 7 < coords.length; i += 8) a.quads.push(coords.slice(i, i + 8));
     }
     if (kind === 'ink') {
+      if (['FreehandHighlight', 'InkHighlight'].includes(el.getAttribute('intent') ?? '')) a.marker = true;
       a.paths = [...el.getElementsByTagNameNS('*', 'gesture')].map(g => nums(g.textContent));
       a.rect = pointsBounds(a.paths.flat());
     }

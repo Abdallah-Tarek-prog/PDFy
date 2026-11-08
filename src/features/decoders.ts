@@ -58,7 +58,7 @@ export function readDicom(buf: ArrayBuffer): DicomInfo {
       const uid = text(data, len).replace(/\0/g, '').trim();
       if (uid === '1.2.840.10008.1.2') explicit = false;
       else if (uid === '1.2.840.10008.1.2.2') { little = false; (info as any).bigEndian = true; }
-      else if (uid !== '1.2.840.10008.1.2.1') throw new Error('This DICOM file is compressed, which PDFy cannot read yet.');
+      else if (uid !== '1.2.840.10008.1.2.1') throw new Error('This DICOM file is compressed, which Meletiq PDF cannot read yet.');
     }
     const u16 = () => view.getUint16(data, le);
     const num = () => parseFloat(text(data, len));
@@ -74,15 +74,15 @@ export function readDicom(buf: ArrayBuffer): DicomInfo {
     else if (tag === 0x00281052) info.intercept = num();
     else if (tag === 0x00281053) info.slope = num();
     else if (tag === 0x7fe00010) {
-      if (len === 0xffffffff || len === 0) throw new Error('This DICOM file is compressed, which PDFy cannot read yet.');
+      if (len === 0xffffffff || len === 0) throw new Error('This DICOM file is compressed, which Meletiq PDF cannot read yet.');
       info.offset = data;
       info.length = len;
       break;
     }
-    if (len === 0xffffffff) throw new Error('This DICOM file uses a structure PDFy cannot read yet.');
+    if (len === 0xffffffff) throw new Error('This DICOM file uses a structure Meletiq PDF cannot read yet.');
     pos = data + len;
   }
-  if (!info.rows || !info.cols || info.offset === undefined) throw new Error('This DICOM file has no picture PDFy can read.');
+  if (!info.rows || !info.cols || info.offset === undefined) throw new Error('This DICOM file has no picture Meletiq PDF can read.');
   info.bits ??= 16;
   info.stored ??= info.bits;
   info.little = little;

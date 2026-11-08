@@ -7,6 +7,7 @@ export interface Source {
   id: string;
   name: string;
   blob: Blob;
+  fileBacked?: boolean;
   pdf: PDFDocumentProxy;
   password?: string;
   close(): Promise<void>;
@@ -27,7 +28,13 @@ export const DEFAULT_PAGE: [number, number, number, number] = [0, 0, 612, 792];
 export class Session {
   readonly id = uid();
   name: string;
+  /** Stable library order; closing another tab does not shift this value. */
+  tabOrder = 0;
+  /** The collection shown as this tab's browser-style group. */
+  collectionId: string | null = null;
   handle: FileSystemFileHandle | null = null;
+  /** Reload/copy location for an imported File; Save still asks for its destination. */
+  reloadHandle: FileSystemFileHandle | null = null;
   sources = new Map<string, Source>();
   pages: PageRef[] = [];
   bookmarks: Bookmark[] = [];
@@ -38,6 +45,8 @@ export class Session {
   pendingOptions: BuildOptions = {};
   private undoStack: Command[] = [];
   private redoStack: Command[] = [];
+  /** Changes to the working document, used to distinguish edits made during a background save. */
+  revision = 0;
   private listeners = new Set<Listener>();
   /** Words found by OCR, per page id. */
   ocrWords = new Map<string, { x: number; y: number; w: number; h: number; text: string }[]>();
@@ -75,7 +84,7 @@ export class Session {
   async addSource(blob: Blob, name: string, ask?: AskPassword): Promise<PageRef[]> {
     const opened = await openPdf(blob, ask);
     const src: Source = {
-      id: uid(), name, blob, pdf: opened.pdf, password: opened.password, close: opened.close, formsEdited: false,
+      id: uid(), name, blob, fileBacked: blob instanceof File, pdf: opened.pdf, password: opened.password, close: opened.close, formsEdited: false,
     };
     this.sources.set(src.id, src);
     // Real page sizes load as pages come into view. The first page's size is the placeholder.
@@ -120,6 +129,7 @@ export class Session {
 
   /** Records an edit that has already been applied. */
   record(cmd: Command) {
+    this.revision++;
     this.undoStack.push(cmd);
     if (this.undoStack.length > MAX_HISTORY) this.undoStack.shift();
     this.redoStack.length = 0;
@@ -131,6 +141,7 @@ export class Session {
     const cmd = this.undoStack.pop();
     if (!cmd) return;
     cmd.undo();
+    this.revision++;
     this.redoStack.push(cmd);
     this.dirty = true;
     this.emit({ kind: 'meta' });
@@ -140,6 +151,7 @@ export class Session {
     const cmd = this.redoStack.pop();
     if (!cmd) return;
     cmd.redo();
+    this.revision++;
     this.undoStack.push(cmd);
     this.dirty = true;
     this.emit({ kind: 'meta' });
@@ -148,7 +160,7 @@ export class Session {
   // ---- Annotation edits ----
 
   addAnnots(page: PageRef, annots: Annot[], label = 'Add annotation') {
-    const apply = () => { page.annots.push(...annots); this.emit({ kind: 'annots', pageIds: [page.id] }); };
+    const apply = () => { page.annots = [...page.annots, ...annots]; this.emit({ kind: 'annots', pageIds: [page.id] }); };
     const undo = () => {
       const ids = new Set(annots.map(a => a.id));
       page.annots = page.annots.filter(a => !ids.has(a.id));
@@ -161,8 +173,7 @@ export class Session {
   /** Swaps an annotation for a changed copy. An unedited existing annotation becomes ours here. */
   replaceAnnot(page: PageRef, before: Annot, after: Annot, label = 'Edit annotation') {
     const swap = (from: Annot, to: Annot) => {
-      const i = page.annots.findIndex(a => a.id === from.id);
-      if (i >= 0) page.annots[i] = to;
+      page.annots = page.annots.map(a => a.id === from.id ? to : a);
       this.syncGhost(page, to);
       this.emit({ kind: 'annots', pageIds: [page.id] });
     };
@@ -172,10 +183,10 @@ export class Session {
 
   /** Puts an annotation on top of the others or underneath them. */
   reorderAnnot(page: PageRef, annot: Annot, toFront: boolean) {
-    const before = page.annots;
+    const before = [...page.annots];
     const others = before.filter(a => a !== annot);
     const after = toFront ? [...others, annot] : [annot, ...others];
-    const apply = (list: Annot[]) => { page.annots = list; this.emit({ kind: 'annots', pageIds: [page.id] }); };
+    const apply = (list: Annot[]) => { page.annots = [...list]; this.emit({ kind: 'annots', pageIds: [page.id] }); };
     apply(after);
     this.record({ label: toFront ? 'Bring to front' : 'Send to back', undo: () => apply(before), redo: () => apply(after) });
   }
@@ -183,11 +194,13 @@ export class Session {
   /** Several objects changed together, as one undo step. */
   replaceMany(page: PageRef, pairs: { before: Annot; after: Annot }[], label: string) {
     const swap = (from: 'before' | 'after', to: 'before' | 'after') => {
+      const next = [...page.annots];
       for (const p of pairs) {
-        const i = page.annots.findIndex(a => a.id === p[from].id);
-        if (i >= 0) page.annots[i] = p[to];
+        const i = next.findIndex(a => a.id === p[from].id);
+        if (i >= 0) next[i] = p[to];
         this.syncGhost(page, p[to]);
       }
+      page.annots = next;
       this.emit({ kind: 'annots', pageIds: [page.id] });
     };
     swap('before', 'after');
@@ -198,22 +211,24 @@ export class Session {
   replaceAcross(changes: { page: PageRef; before: Annot; after: Annot }[], label: string) {
     if (!changes.length) return;
     const swap = (from: 'before' | 'after', to: 'before' | 'after') => {
-      const touched = new Set<string>();
+      const touched = new Map<PageRef, Annot[]>();
       for (const c of changes) {
-        const i = c.page.annots.findIndex(a => a.id === c[from].id);
-        if (i >= 0) c.page.annots[i] = c[to];
+        let next = touched.get(c.page);
+        if (!next) { next = [...c.page.annots]; touched.set(c.page, next); }
+        const i = next.findIndex(a => a.id === c[from].id);
+        if (i >= 0) next[i] = c[to];
         this.syncGhost(c.page, c[to]);
-        touched.add(c.page.id);
       }
-      this.emit({ kind: 'annots', pageIds: [...touched] });
+      for (const [page, next] of touched) page.annots = next;
+      this.emit({ kind: 'annots', pageIds: [...touched.keys()].map(page => page.id) });
     };
     swap('before', 'after');
     this.record({ label, undo: () => swap('after', 'before'), redo: () => swap('before', 'after') });
   }
 
   removeMany(page: PageRef, annots: Annot[]) {
-    const before = page.annots;
-    const removedBefore = page.removed;
+    const before = [...page.annots];
+    const removedBefore = [...page.removed];
     const set = new Set(annots);
     const imported = annots.filter(a => a.importedFrom);
     const apply = () => {
@@ -223,8 +238,8 @@ export class Session {
       this.emit({ kind: 'annots', pageIds: [page.id] });
     };
     const undo = () => {
-      page.annots = before;
-      page.removed = removedBefore;
+      page.annots = [...before];
+      page.removed = [...removedBefore];
       for (const a of imported) if (a.ghost) this.hideInEngine(page, a.importedFrom!, false);
       this.emit({ kind: 'annots', pageIds: [page.id] });
     };
@@ -239,13 +254,13 @@ export class Session {
     const apply = () => {
       page.annots = page.annots.filter(a => a.id !== annot.id);
       if (annot.importedFrom) {
-        page.removed.push(annot.importedFrom, ...(annot.importedReplies ?? []));
+        page.removed = [...page.removed, annot.importedFrom, ...(annot.importedReplies ?? [])];
         this.hideInEngine(page, annot.importedFrom, true);
       }
       this.emit({ kind: 'annots', pageIds: [page.id] });
     };
     const undo = () => {
-      page.annots.splice(index, 0, annot);
+      page.annots = [...page.annots.slice(0, index), annot, ...page.annots.slice(index)];
       if (annot.importedFrom) {
         page.removed = page.removed.filter(r => r !== annot.importedFrom && !annot.importedReplies?.includes(r));
         if (wasGhost) this.hideInEngine(page, annot.importedFrom, false);
@@ -273,8 +288,8 @@ export class Session {
 
   /** Page list changes share one undo shape, so deleting and reordering cost almost nothing. */
   setPages(next: PageRef[], label: string) {
-    const before = this.pages;
-    const apply = (list: PageRef[]) => { this.pages = list; this.emit({ kind: 'structure' }); };
+    const before = [...this.pages];
+    const apply = (list: PageRef[]) => { this.pages = [...list]; this.emit({ kind: 'structure' }); };
     apply(next);
     this.record({ label, undo: () => apply(before), redo: () => apply(next) });
   }
@@ -306,7 +321,34 @@ export class Session {
     this.redoStack.length = 0;
   }
 
+  /** Keep the original bytes available for undo and later saves before a disk file is overwritten. */
+  async preserveSources() {
+    for (const source of this.sources.values()) {
+      if (source.blob instanceof File) {
+        source.blob = new Blob([await source.pdf.getData() as BlobPart], { type: 'application/pdf' });
+      }
+    }
+  }
+
+  /** Freeze the model before awaiting any work, so editing can continue during saving. */
+  async snapshotForSave(): Promise<Session> {
+    const snapshot = new Session(this.name);
+    snapshot.sources = new Map([...this.sources].map(([id, source]) => [id, { ...source }]));
+    snapshot.pages = structuredClone(this.pages);
+    snapshot.bookmarks = structuredClone(this.bookmarks);
+    snapshot.attachments = this.attachments.map(a => ({ ...a }));
+    snapshot.ocrWords = structuredClone(this.ocrWords);
+    snapshot.pendingOptions = structuredClone(this.pendingOptions);
+    // saveDocument captures the current form values before its first await.
+    await Promise.all([...snapshot.sources.values()].filter(s => s.formsEdited).map(async source => {
+      source.blob = new Blob([await source.pdf.saveDocument() as BlobPart], { type: 'application/pdf' });
+      source.formsEdited = false;
+    }));
+    return snapshot;
+  }
+
   markDirty() {
+    this.revision++;
     this.dirty = true;
     this.emit({ kind: 'meta' });
   }

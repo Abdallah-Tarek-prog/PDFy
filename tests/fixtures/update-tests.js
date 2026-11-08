@@ -76,7 +76,7 @@ function toneWav(seconds = 1.2) {
 await test('I picks the pen from Read, even right after changing Thickness', async () => {
   await openFixture('normal.pdf');
   app.setMode('view');
-  app.tools.setTool('select');
+  app.tools.setTool('hand');
   // Leave the keyboard in a number box, as after typing a thickness.
   const box = document.createElement('input');
   box.type = 'number';
@@ -378,7 +378,7 @@ await test('Zoom: Ctrl+wheel and a touchpad pinch zoom at the pointer, the middl
   t('pointerup', 12, cx + 100, cy);
   ok(app.viewer.scale > z0 * 1.5, `pinch zoomed from ${Math.round(z0 * 100)}% to ${Math.round(app.viewer.scale * 100)}%`);
   eq(s.pages[0].annots.filter(a => a.kind === 'ink').length, 0, 'the pinch drew nothing');
-  app.tools.setTool('select');
+  app.tools.setTool('hand');
   app.setMode('view');
   s.dirty = false;
 });
@@ -424,13 +424,13 @@ await test('Pen settings: pointer shape, back of the pen erases, “only the pen
   // Write straight away in Read.
   localStorage.setItem('pdfy.settings', JSON.stringify({ pen: { autoInk: true } }));
   app.setMode('view');
-  app.tools.setTool('select');
+  app.tools.setTool('hand');
   const [px, py] = spot(page, 0.4, 0.5);
   ptr('pointerdown', px, py, { pointerType: 'pen' });
   ptr('pointermove', px + 30, py + 8, { pointerType: 'pen' });
   ptr('pointerup', px + 30, py + 8, { pointerType: 'pen' });
   eq(inks(), 1, 'the pen wrote in Read');
-  eq(app.tools.tool, 'select', 'the tool is still Select for the mouse');
+  eq(app.tools.tool, 'hand', 'the tool is still Pan for the mouse');
   localStorage.removeItem('pdfy.settings');
   app.tools.syncCursor();
   s.dirty = false;
@@ -491,7 +491,7 @@ await test('Forms: a field made in PDFy can be filled in straight away, and the 
   const mk = (type, name, rect, options) => ({ id: `f${Math.random().toString(36).slice(2)}`, kind: 'rect', rect, color: '#0b57d0', opacity: 1, width: 1.5, fill: null, field: { type, name, options }, created: Date.now() });
   s.addAnnots(page, [mk('text', 'student_name', [72, 650, 300, 672]), mk('check', 'agree', [72, 610, 86, 624]), mk('dropdown', 'year', [72, 570, 200, 590], ['First', 'Second', 'Third'])], 'Add fields');
   app.setMode('view');
-  app.tools.setTool('select');
+  app.tools.setTool('hand');
   await wait(100);
   const ctls = document.querySelectorAll('.own-field-ctl');
   eq(ctls.length, 3, 'three fillable controls in Read');
@@ -546,6 +546,8 @@ await test('Collections and recently closed: kept as links, old ones forgotten a
   ok(names.includes('library-test.pdf'), 'the recent one stays');
   // The Home screen shows them.
   await closeAll();
+  // Closing imported Files now records them too; make this disk file the last closed entry.
+  await A.addClosed('library-test.pdf', handle, 0, 1);
   await app.home.draw();
   ok([...document.querySelectorAll('.home-nav-item')].some(b => b.textContent.includes('Physics')), 'the collection is on Home');
   [...document.querySelectorAll('.home-nav-item')].find(b => b.textContent.includes('Recently closed')).click();
@@ -672,7 +674,7 @@ await test('Review: radio choices with one name are one question, and saved answ
   const mk = (id, type, name, rect, options, value) => ({ id, kind: 'rect', rect, color: '#0b57d0', opacity: 1, width: 1.5, fill: null, field: { type, name, options, value }, created: Date.now() });
   s.addAnnots(page, [mk('ra', 'radio', 'level', [72, 500, 86, 514], ['Beginner']), mk('rb', 'radio', 'level', [120, 500, 134, 514], ['Advanced']), mk('tx', 'text', 'answer', [72, 440, 320, 470], undefined, 'Muhammad')], 'Fields');
   app.setMode('view');
-  app.tools.setTool('select');
+  app.tools.setTool('hand');
   await wait(80);
   const radios = [...document.querySelectorAll('.own-field-ctl[type=radio]')];
   eq(radios.length, 2, 'two choices');

@@ -60,6 +60,8 @@ export class Panels {
     this.sync();
     if (id) this.panels[id].show();
     this.app.viewer.relayout(this.app.viewer.fit !== 'none');
+    // The toolbar's panel buttons follow, however the panel was opened or closed.
+    this.app.syncRibbon();
   }
 
   private sync() {
@@ -91,6 +93,7 @@ export async function drawAnnotsOnCanvas(c: HTMLCanvasElement, page: PageRef, k:
     ctx.save();
     ctx.setTransform(a0, b0, c0, d0, e0, f0);
     ctx.globalAlpha = a.opacity;
+    if (a.kind === 'highlight' || a.marker) ctx.globalCompositeOperation = 'multiply';
     if (a.kind === 'image' && a.image) {
       try {
         const bmp = await createImageBitmap(a.image.blob, { resizeWidth: Math.max(8, Math.min(260, a.image.width)), resizeQuality: 'low' });
@@ -138,10 +141,20 @@ export async function drawAnnotsOnCanvas(c: HTMLCanvasElement, page: PageRef, k:
   }
 }
 
-const CELL_H = 196;
 const THUMB_W = 132;
 const THUMB_H = 164;
 const THUMB_CACHE = 64; // About 20 MB at most, however long the document.
+
+/**
+ * How tall the tallest page is for its width, so a deck of wide slides is not spaced out for
+ * portrait pages. Long documents are sampled, so this stays quick.
+ */
+export function tallestPage(pages: PageRef[]): number {
+  let r = 0;
+  const step = Math.max(1, Math.floor(pages.length / 500));
+  for (let i = 0; i < pages.length; i += step) { const vp = viewportFor(pages[i], 1); r = Math.max(r, vp.height / (vp.width || 1)); }
+  return Math.min(1.5, Math.max(0.4, r || 1.3));
+}
 
 class ThumbPanel implements Panel {
   el: HTMLElement;
@@ -157,6 +170,8 @@ class ThumbPanel implements Panel {
   private anchor = -1;
   private dropLine: HTMLElement;
   private dragging = false;
+  /** Room for one thumbnail and its number, set by the shape of the pages. */
+  private cellH = THUMB_H + 32;
 
   constructor(private app: App) {
     this.scroll = h('div', { class: 'thumbs-scroll', tabindex: 0, 'aria-label': 'Page thumbnails' });
@@ -211,10 +226,12 @@ class ThumbPanel implements Panel {
     const session = this.app.session;
     if (!session || this.el.hidden) return;
     const pages = session.pages;
-    this.sizer.style.height = `${pages.length * CELL_H + 8}px`;
+    const boxH = Math.min(THUMB_H, Math.round(THUMB_W * tallestPage(pages)));
+    const cellH = this.cellH = boxH + 32;
+    this.sizer.style.height = `${pages.length * cellH + 8}px`;
     const top = this.scroll.scrollTop, height = this.scroll.clientHeight;
-    const first = Math.max(0, Math.floor(top / CELL_H) - 2);
-    const last = Math.min(pages.length - 1, Math.ceil((top + height) / CELL_H) + 2);
+    const first = Math.max(0, Math.floor(top / cellH) - 2);
+    const last = Math.min(pages.length - 1, Math.ceil((top + height) / cellH) + 2);
     const keep = new Set<string>();
     this.queue.length = 0;
     for (let i = first; i <= last; i++) {
@@ -222,10 +239,14 @@ class ThumbPanel implements Panel {
       keep.add(page.id);
       let cell = this.cells.get(page.id);
       if (!cell) { cell = this.makeCell(page); this.cells.set(page.id, cell); this.sizer.append(cell); }
-      cell.style.top = `${i * CELL_H + 6}px`;
+      cell.style.top = `${i * cellH + 6}px`;
+      cell.style.height = `${cellH - 8}px`;
+      (cell.querySelector('.thumb-holder') as HTMLElement).style.height = `${boxH}px`;
       (cell.querySelector('.thumb-num') as HTMLElement).textContent = String(i + 1);
+      cell.setAttribute('aria-label', `Page ${i + 1}`);
       cell.classList.toggle('current', i === this.app.viewer.current);
       cell.classList.toggle('selected', this.selected.has(page.id));
+      cell.setAttribute('aria-pressed', String(this.selected.has(page.id)));
       this.fill(page, cell.querySelector('.thumb-holder') as HTMLElement);
     }
     for (const [id, c] of this.cells) if (!keep.has(id)) { c.remove(); this.cells.delete(id); }
@@ -286,6 +307,7 @@ class ThumbPanel implements Panel {
     const cell = h('div', { class: 'thumb-cell', draggable: true, role: 'button', tabindex: 0 },
       h('div', { class: 'thumb-holder' }), h('div', { class: 'thumb-num' }));
     cell.addEventListener('click', e => this.click(page, e));
+    cell.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); cell.click(); } });
     cell.addEventListener('contextmenu', e => this.onMenu?.(e, page));
     cell.addEventListener('dragstart', e => {
       if (!this.selected.has(page.id)) { this.selected.clear(); this.selected.add(page.id); this.schedule(); }
@@ -319,7 +341,7 @@ class ThumbPanel implements Panel {
     const r = this.scroll.getBoundingClientRect();
     const y = e.clientY - r.top + this.scroll.scrollTop;
     const count = this.app.session?.pages.length ?? 0;
-    return Math.max(0, Math.min(count, Math.round(y / CELL_H)));
+    return Math.max(0, Math.min(count, Math.round(y / this.cellH)));
   }
 
   private dragOver(e: DragEvent) {
@@ -330,7 +352,7 @@ class ThumbPanel implements Panel {
     if (e.clientY - r.top < 30) this.scroll.scrollTop -= 14;
     else if (r.bottom - e.clientY < 30) this.scroll.scrollTop += 14;
     this.dropLine.hidden = false;
-    this.dropLine.style.top = `${this.dropIndex(e) * CELL_H + 2}px`;
+    this.dropLine.style.top = `${this.dropIndex(e) * this.cellH + 2}px`;
   }
 
   private drop(e: DragEvent) {
@@ -467,7 +489,7 @@ class CommentsPanel implements Panel {
   private row(page: PageRef, index: number, a: Annot): HTMLElement {
     const open = () => {
       this.app.viewer.goTo(index);
-      this.app.tools.setTool('select');
+      this.app.tools.useReadingTool();
       requestAnimationFrame(() => { this.app.viewer.select(page.id, a.id); this.app.onSelection(); });
     };
     return h('div', { class: 'comment', role: 'button', tabindex: 0, onclick: open },
@@ -607,7 +629,16 @@ class SearchPanel implements Panel {
   }
 
   attach() { this.input.value = ''; this.reset(); }
-  show() { this.input.focus(); this.input.select(); }
+
+  /** Reopening keeps the words typed and finds them again. */
+  show() {
+    this.input.focus();
+    this.input.select();
+    if (this.input.value.trim() && !this.matches.length) this.start();
+  }
+
+  /** Closing the panel takes its highlights off the pages and drops a search still running. */
+  hide() { this.reset(); }
 
   private reset() {
     this.run++;
@@ -624,7 +655,8 @@ class SearchPanel implements Panel {
     const q = this.input.value.trim();
     const session = this.app.session;
     this.reset();
-    if (!q || !session) return;
+    // Typing just before the panel closed must not put highlights back afterwards.
+    if (!q || !session || this.el.hidden) return;
     const run = this.run;
     void searchDocument(session, q, { caseSensitive: this.caseBox.checked, wholeWord: this.wordBox.checked }, (found, done, total) => {
       if (run !== this.run) return;

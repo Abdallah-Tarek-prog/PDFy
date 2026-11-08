@@ -126,14 +126,20 @@ async function build(job: BuildJob, warnings: string[], progress: (p: number) =>
   const others = new Map<string, PDFDocument>();
   const used = new Set<number>();
   const final: PDFPage[] = [];
+  const removedSlots: Set<number>[] = [];
+  const rotations: number[] = [];
   for (let i = 0; i < pages.length; i++) {
     const p = pages[i];
     let page: PDFPage;
     if (!p.source) {
       page = PDFPage.create(doc);
       page.setMediaBox(p.view[0], p.view[1], p.view[2] - p.view[0], p.view[3] - p.view[1]);
+      removedSlots.push(new Set());
+      rotations.push(p.absoluteRotate);
     } else if (p.source === baseId && !used.has(p.index)) {
       page = originals[p.index];
+      removedSlots.push(annotationSlots(page, p.removed));
+      rotations.push(((page.getRotation().angle + p.rotate) % 360 + 360) % 360);
       used.add(p.index);
     } else {
       let from: PDFDocument = doc;
@@ -142,6 +148,11 @@ async function build(job: BuildJob, warnings: string[], progress: (p: number) =>
         if (!o) { o = await loadDoc(inputs.get(p.source)!); others.set(p.source, o); }
         from = o;
       }
+      const original = from.getPage(p.index);
+      // copyPages preserves annotation array order, but assigns new object references. Match the
+      // original IDs to their array slots before copying, never to destination reference numbers.
+      removedSlots.push(annotationSlots(original, p.removed));
+      rotations.push(((original.getRotation().angle + p.rotate) % 360 + 360) % 360);
       [page] = await doc.copyPages(from, [p.index]);
     }
     final.push(page);
@@ -157,8 +168,8 @@ async function build(job: BuildJob, warnings: string[], progress: (p: number) =>
     const p = pages[i];
     const page = final[i];
     {
-      if (p.removed.length) removeAnnots(doc, page, p.removed);
-      page.setRotation(degrees(p.absoluteRotate));
+      if (removedSlots[i].size) removeAnnots(page, removedSlots[i]);
+      page.setRotation(degrees(rotations[i]));
       if (p.crop) page.setCropBox(p.crop[0], p.crop[1], p.crop[2] - p.crop[0], p.crop[3] - p.crop[1]);
       for (const a of p.annots) {
         if (options.pdfa) a.embedFonts = true;
@@ -172,7 +183,7 @@ async function build(job: BuildJob, warnings: string[], progress: (p: number) =>
   }
 
   // 3. Document level edits.
-  if (options.flattenAnnots) for (const page of final) flattenPage(doc, page);
+  if (options.flattenAnnots) for (const page of final) flattenPage(doc, page, warnings);
   if (options.flattenForms) {
     try { doc.getForm().flatten(); } catch (err) { warnings.push(`Forms could not be flattened: ${String(err)}`); }
   }
@@ -447,17 +458,26 @@ function annotsOf(page: PDFPage): PDFArray | undefined {
   return a instanceof PDFArray ? a : undefined;
 }
 
-function removeAnnots(doc: PDFDocument, page: PDFPage, ids: string[]) {
+function annotationSlots(page: PDFPage, ids: string[]): Set<number> {
+  const slots = new Set<number>();
   const arr = annotsOf(page);
-  if (!arr) return;
+  if (!arr || !ids.length) return slots;
   const want = new Set(ids);
-  for (let i = arr.size() - 1; i >= 0; i--) {
+  for (let i = 0; i < arr.size(); i++) {
     const v = arr.get(i);
     if (v instanceof PDFRef) {
       const id = v.generationNumber ? `${v.objectNumber}R${v.generationNumber}` : `${v.objectNumber}R`;
-      if (want.has(id)) { arr.remove(i); doc.context.delete(v); }
+      if (want.has(id)) slots.add(i);
     }
   }
+  return slots;
+}
+
+function removeAnnots(page: PDFPage, slots: Set<number>) {
+  const arr = annotsOf(page);
+  if (!arr) return;
+  // Unreferenced objects are removed at the end; another page may still use this annotation ref.
+  for (let i = arr.size() - 1; i >= 0; i--) if (slots.has(i)) arr.remove(i);
 }
 
 const FONTS: Record<FontFamily, [StandardFonts, StandardFonts, StandardFonts, StandardFonts]> = {
@@ -544,7 +564,7 @@ async function buildAppearance(doc: PDFDocument, a: SaveAnnot, fonts: FontBox): 
   let ops = 'q\n/G0 gs\n';
 
   const gs: Record<string, unknown> = { Type: 'ExtGState', ca: a.opacity, CA: a.opacity };
-  if (a.kind === 'highlight') gs.BM = 'Multiply';
+  if (a.kind === 'highlight' || a.marker) gs.BM = 'Multiply';
   resources.set(N('ExtGState'), ctx.obj({ G0: gs } as never));
 
   const shape = shapeOf(a as never);
@@ -678,11 +698,12 @@ async function addAnnot(doc: PDFDocument, page: PDFPage, a: SaveAnnot, fonts: Fo
   }
   if (a.field) { await addField(doc, page, a, fonts); return; }
   if (a.attachmentBytes) { addFileNote(doc, page, a); return; }
+  if (a.kind === 'attachment') throw new Error('The pinned file has no readable bytes.');
 
   const ap = await buildAppearance(doc, a, fonts);
   const form = ctx.register(ctx.flateStream(ap.ops, {
     Type: 'XObject', Subtype: 'Form', FormType: 1, BBox: ap.bbox, Resources: ap.resources,
-    Group: a.kind === 'highlight' ? { S: 'Transparency', Type: 'Group' } : undefined,
+    Group: a.kind === 'highlight' || a.marker ? { S: 'Transparency', Type: 'Group' } : undefined,
   } as never));
 
   if (a.burn || options.flattenAnnots) {
@@ -707,7 +728,10 @@ async function addAnnot(doc: PDFDocument, page: PDFPage, a: SaveAnnot, fonts: Fo
   switch (a.kind) {
     case 'highlight': case 'underline': case 'strikeout': case 'squiggly':
       dict.set(N('QuadPoints'), ctx.obj((a.quads ?? []).flat())); break;
-    case 'ink': dict.set(N('InkList'), ctx.obj(a.paths ?? [])); break;
+    case 'ink':
+      dict.set(N('InkList'), ctx.obj(a.paths ?? []));
+      if (a.marker) dict.set(N('IT'), N('FreehandHighlight'));
+      break;
     case 'line': case 'arrow': case 'measure':
       dict.set(N('L'), ctx.obj((a.pts ?? []).slice(0, 4)));
       if (a.kind === 'arrow') dict.set(N('LE'), ctx.obj([N('None'), N('ClosedArrow')]));
@@ -894,9 +918,10 @@ function drawForm(page: PDFPage, form: PDFRef, a: number, b: number, c: number, 
 }
 
 /** Draws every annotation's appearance into the page, then removes the annotation. */
-function flattenPage(doc: PDFDocument, page: PDFPage) {
+function flattenPage(doc: PDFDocument, page: PDFPage, warnings: string[]) {
   const arr = annotsOf(page);
   if (!arr) return;
+  let kept = 0;
   for (let i = arr.size() - 1; i >= 0; i--) {
     const dict = arr.lookup(i);
     if (!(dict instanceof PDFDict)) continue;
@@ -914,11 +939,13 @@ function flattenPage(doc: PDFDocument, page: PDFPage) {
     const stream = normal ? doc.context.lookup(normal) : undefined;
     const rectObj = dict.lookup(N('Rect'));
     if (stream instanceof PDFStream && normal instanceof PDFRef && rectObj instanceof PDFArray) {
-      const rect = rectObj.asArray().map(v => (v instanceof PDFNumber ? v.asNumber() : 0));
+      const rect = rectObj.asArray().map(v => (v instanceof PDFNumber ? v.asNumber() : NaN));
       const bb = stream.dict.lookup(N('BBox'));
-      const box = bb instanceof PDFArray ? bb.asArray().map(v => (v instanceof PDFNumber ? v.asNumber() : 0)) : rect;
+      if (!(bb instanceof PDFArray)) { kept++; continue; }
+      const box = bb.asArray().map(v => (v instanceof PDFNumber ? v.asNumber() : NaN));
       const mx = stream.dict.lookup(N('Matrix'));
-      const m = mx instanceof PDFArray ? mx.asArray().map(v => (v instanceof PDFNumber ? v.asNumber() : 0)) : [1, 0, 0, 1, 0, 0];
+      const m = mx instanceof PDFArray ? mx.asArray().map(v => (v instanceof PDFNumber ? v.asNumber() : NaN)) : [1, 0, 0, 1, 0, 0];
+      if (rect.length !== 4 || box.length !== 4 || m.length !== 6 || ![...rect, ...box, ...m].every(Number.isFinite)) { kept++; continue; }
       const xs: number[] = [], ys: number[] = [];
       for (const [x, y] of [[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]]) {
         xs.push(m[0] * x + m[2] * y + m[4]); ys.push(m[1] * x + m[3] * y + m[5]);
@@ -926,11 +953,13 @@ function flattenPage(doc: PDFDocument, page: PDFPage) {
       const tx0 = Math.min(...xs), tx1 = Math.max(...xs), ty0 = Math.min(...ys), ty1 = Math.max(...ys);
       const rx0 = Math.min(rect[0], rect[2]), rx1 = Math.max(rect[0], rect[2]);
       const ry0 = Math.min(rect[1], rect[3]), ry1 = Math.max(rect[1], rect[3]);
+      if (tx0 === tx1 || ty0 === ty1 || rx0 === rx1 || ry0 === ry1) { kept++; continue; }
       const sx = tx1 - tx0 ? (rx1 - rx0) / (tx1 - tx0) : 1, sy = ty1 - ty0 ? (ry1 - ry0) / (ty1 - ty0) : 1;
       drawForm(page, normal, sx, 0, 0, sy, rx0 - tx0 * sx, ry0 - ty0 * sy);
-    }
-    arr.remove(i);
+      arr.remove(i);
+    } else kept++;
   }
+  if (kept) warnings.push(`${kept} annotation${kept === 1 ? ' was' : 's were'} kept editable because an appearance could not be drawn safely.`);
 }
 
 /** Words drawn in invisible mode, so search and copy work on scanned pages but nothing shows. */
@@ -1012,6 +1041,7 @@ async function compressImages(doc: PDFDocument, opt: { quality: number; maxSide:
       const stream = obj as PDFRawStream;
       const mask = stream.dict.lookup(N('ImageMask'));
       if (mask && String(mask) === 'true') continue;
+      if (stream.dict.has(N('Mask'))) continue; // Re-encoding must not drop explicit transparency.
       const w = (stream.dict.lookup(N('Width')) as PDFNumber)?.asNumber();
       const h = (stream.dict.lookup(N('Height')) as PDFNumber)?.asNumber();
       if (!w || !h) continue;

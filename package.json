@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "PDFy: a fast, crash-resistant PDF editor with image theme conversion",
+  "description": "Meletiq PDF: a fast, crash-resistant PDF editor with image theme conversion",
   "scripts": {
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
