@@ -28,8 +28,14 @@ Read this first, continue from "Next", then update this file.
 - Tests: instance 14/14, host 22/22, study exe 17/18, features 60/60, interface 30/30, update 22/22, commands 20/22, study 23/26. The 6 failures also fail with today's changes undone or on the old exe: commands "Open: ribbon button…" (history entry could not be saved) and "Save writes to the file…" (history does not start fresh), study "Font picker", "Colour picker", "Review: Enter on a font", and study exe full screen ("not granted" when the test window is not in front).
 - Old log: engine crashes were all code 0x80000003 (the engine stopping itself on an internal check). Some may come from tests that force crashes without their own data folder. The computer had only about 2 GB of 16 GB free during today's tests.
 
+## Meletiq PDF update installed on 2026-11-08
+- Switching tabs restores each document's reading position, zoom and page layout.
+- Collections now appear as coloured, collapsible tab groups, with saved membership, rename/colour controls and drag-to-group.
+- Build, typecheck and 63 relevant checks passed. Installed and hash-verified all 932 web files (45.3 MB), then reopened the app successfully. Previous web files are in `app/web-before-tabs-groups-20261108`.
+- App source, assets and tests are pushed to the private `UI_Enhance` branch. Automatic updates are not implemented.
+
 ## Next
-1. Install the new build: `dotnet publish` to `app` and copy `dist` to `app/web`. Needs the owner's PDFy closed; never close it for them.
+1. Future installations need the owner's Meletiq PDF closed; never close it for them. The current build is installed.
 2. Fix the 5 failing page tests listed above (history entries, font and colour pickers).
 3. Ask the owner whether minimise still looks wrong after installing; if so, get a screen recording.
 4. Try the pen settings with the owner's real graphics tablet, and pinch on a real touchpad: so far only simulated events were tested.
