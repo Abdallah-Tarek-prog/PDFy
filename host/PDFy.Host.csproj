@@ -12,7 +12,7 @@
     <Product>Meletiq PDF</Product>
     <AssemblyTitle>Meletiq PDF</AssemblyTitle>
     <Description>PDF editor and study workspace</Description>
-    <Version>0.4.1</Version>
+    <Version>0.4.2</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ServerGarbageCollection>false</ServerGarbageCollection>

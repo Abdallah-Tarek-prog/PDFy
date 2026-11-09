@@ -59,7 +59,7 @@ try{
   await test('Ctrl+S commits a formatted draft into a real PDF and reopening preserves its formatting',async()=>{
     const {session}=await open('Saved formatting');const directory=await navigator.storage.getDirectory();const filename='markdown-save-'+Date.now()+'.pdf';
     try{
-      session.handle=await directory.getFileHandle(filename,{create:true});await selectAll();button('Bold (Ctrl+B)').click();
+      session.handle=await directory.getFileHandle(filename,{create:true});await selectAll();button('Bold (Ctrl+B)').click();button('Highlight').click();
       pickColour('#b93b12');
       root().querySelector('[contenteditable=true]').focus();
       for(const type of ['keyDown','keyUp'])await window.__cdp('Input.dispatchKeyEvent',{type,key:'s',code:'KeyS',modifiers:2,windowsVirtualKeyCode:83});
@@ -68,6 +68,7 @@ try{
       check(note?.text.includes('Saved formatting')&&note.text.includes('#b93b12'),'PDF reopening lost the Markdown source');
       app.setMode('edit');app.tools.openEditor(app.viewer.views.get(reopened.pages[0].id),note,false);
       check(root().querySelector('strong')?.textContent==='Saved formatting'&&root().querySelector('.md-color'),'PDF reopening lost formatted editing');
+      check(getComputedStyle(root().querySelector('mark')).color==='rgb(185, 59, 18)','PDF reopening lost the highlighted text colour');
     }finally{await closeAll();await directory.removeEntry(filename);}
   });
   await test('A narrow split pane fits the toolbar and switching panes commits size and text to the original document',async()=>{

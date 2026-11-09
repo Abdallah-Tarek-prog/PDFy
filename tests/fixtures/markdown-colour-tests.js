@@ -34,6 +34,13 @@ try{
     await window.__cdp('Input.insertText',{text:'New blue text'});
     const span=root().querySelector('.md-color');check(span?.textContent==='New blue text'&&getComputedStyle(span).color==='rgb(26, 86, 219)','The chosen typing colour was lost');
   });
+  await test('Text colour also applies to highlighted Markdown while keeping its highlight background',async()=>{
+    const {p}=await open('==Highlighted==');for(const type of ['keyDown','keyUp'])await window.__cdp('Input.dispatchKeyEvent',{type,key:'a',code:'KeyA',modifiers:2,windowsVirtualKeyCode:65});
+    await click(root().querySelector('[aria-label="Text colour"]'));const palette=await until(()=>document.querySelector('.colour-popover'));await click(palette.querySelector('[aria-label="Colour #d92d20"]'));
+    const mark=root().querySelector('.md-editable mark');check(getComputedStyle(mark).color==='rgb(217, 45, 32)','Highlight styling overrides the selected text colour');
+    check(getComputedStyle(mark).backgroundColor!=='rgba(0, 0, 0, 0)','Changing text colour removed the highlight');root().querySelector('.md-done').click();await app.tools.settle();
+    const preview=await until(()=>document.querySelector(`[data-id="${p.annots[0].id}"] mark`));check(getComputedStyle(preview).color==='rgb(217, 45, 32)','Preview lost the highlighted text colour');
+  });
   await test('A colour palette in the right pane commits to its own PDF and closes when switching documents',async()=>{
     const {s,p}=await open('Before target after');root().querySelector('.md-done').click();await app.tools.settle();const other=app.newDocument();app.moveSessionToPane(s,1);
     try{

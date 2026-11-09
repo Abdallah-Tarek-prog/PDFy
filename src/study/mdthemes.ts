@@ -139,7 +139,7 @@ export const RICH_CSS = `
 .md-box h1,.md-box h2,.md-box h3,.md-box h4,.md-box h5,.md-box h6{font-family:var(--md-hfont);color:var(--md-heading);font-weight:var(--md-hweight);line-height:1.25;margin:1em 0 .42em}
 .md-box h1{font-size:1.72em}.md-box h2{font-size:1.42em}.md-box h3{font-size:1.2em}.md-box h4{font-size:1.06em}.md-box h5{font-size:1em}.md-box h6{font-size:.92em;opacity:.8}
 .md-box strong{font-weight:700;color:var(--md-strong)}.md-box em{font-style:italic}.md-box del{opacity:.65}
-.md-box .md-color strong,.md-box .md-color a,.md-box .md-color code{color:inherit}
+.md-box .md-color strong,.md-box .md-color a,.md-box .md-color code,.md-box .md-color mark{color:inherit}
 .md-box mark{background:var(--md-mark-bg);color:var(--md-mark-fg);padding:.04em .2em;border-radius:.2em}
 .md-box a,.md-box .md-wiki{color:var(--md-link);text-decoration:underline;text-underline-offset:.14em}
 .md-box code{font-family:var(--md-mono);font-size:.88em;background:var(--md-code-bg);color:var(--md-code-fg);padding:.1em .32em;border-radius:.25em}
