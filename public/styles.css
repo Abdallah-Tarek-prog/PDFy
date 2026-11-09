@@ -753,3 +753,26 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .split-workspace .doc-tab { max-width: 200px; }
 .split-workspace .page-pill { left: 10px; bottom: 10px; }
 .split-workspace .zoom-pill { right: 10px; bottom: 60px; }
+.auto-scroll-origin { position: fixed; z-index: 1000; display: grid; place-items: center; width: 28px; height: 28px; transform: translate(-50%,-50%); pointer-events: none; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.viewer.auto-scrolling, .viewer.auto-scrolling * { cursor: all-scroll !important; }
+.markdown-editor { display: flex; flex-direction: column; padding: 0; border: 1px solid var(--accent); border-radius: 8px; background: var(--surface); color: var(--text); box-shadow: var(--shadow); font-family: var(--font); line-height: 1.4; overflow: hidden; }
+.md-editor-top,.md-formatbar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 5px; border-bottom: 1px solid var(--border); background: var(--surface); color: var(--text); font: 12px/1.3 var(--font); }
+.md-editor-top select { flex: 1; min-width: 90px; width: 90px; }
+.md-editor-action,.md-format { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 28px; padding: 4px 6px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.md-editor-action:hover,.md-format:hover { background: var(--surface-2); }
+.md-format.on,.md-editor-action[aria-pressed=true] { color: var(--accent-text); background: var(--accent-soft); }
+.md-done { background: var(--accent); color: var(--accent-ink); }
+.md-editor-top select,.md-formatbar select { min-height: 28px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); color: var(--text); font: inherit; }
+.md-formatbar .md-text-colour { width: 28px; height: 28px; padding: 2px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); cursor: pointer; }
+.md-editor-rich { min-height: 100px; overflow: auto; }
+.md-editor-rich .md-editable { min-height: 100px; outline: none; user-select: text; cursor: text; }
+.md-editable ul[data-type=taskList] { list-style: none; padding-inline-start: 0; }
+.md-editable li[data-type=taskItem] { display: flex; align-items: flex-start; gap: .5em; }
+.md-editable li[data-type=taskItem]>div { flex: 1; min-width: 0; }
+.md-editable li[data-type=taskItem]>label { display: flex; margin-top: .2em; }
+.md-editable .md-preserved { color: var(--md-code-fg); background: var(--md-code-bg); border-radius: 3px; padding: 0 .15em; white-space: pre-wrap; cursor: text; }
+.md-editable .md-preserved-wiki { color: var(--md-link); }
+.md-editable .md-preserved-comment { font-size: .85em; opacity: .7; }
+.md-editor-source { display: block; width: 100%; min-height: 100px; padding: 8px; border: 0; outline: 0; resize: none; font: 13px/1.5 Consolas, monospace; color: var(--text); background: var(--surface); tab-size: 2; }
+.document-pane:has(.markdown-editor) > .style-bar { display: none; }
+.md-formatbar .md-note-size { width: 42px; height: 28px; padding: 2px 3px; border: 1px solid var(--border); border-radius: 4px; font: inherit; background: var(--surface-2); color: var(--text); }

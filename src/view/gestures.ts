@@ -1,8 +1,9 @@
 // Moving around the pages the way Xodo allows: zoom with Ctrl and the wheel or a touchpad pinch,
-// right where the pointer is; drag with the middle button to move in any direction; one finger
+// right where the pointer is; click the middle button for pointer-controlled scrolling; one finger
 // moves and two fingers pinch on a touch screen. The wheel can be set to zoom on its own.
 
 import { getSettings } from '../core/settings';
+import { h, icon } from '../ui/dom';
 import type { Viewer } from './viewer';
 
 export interface GestureHooks {
@@ -14,6 +15,46 @@ export interface GestureHooks {
 
 export function installGestures(viewer: Viewer, hooks: GestureHooks) {
   const sc = viewer.scroller;
+  let auto: { session: Viewer['session']; x: number; y: number; originX: number; originY: number; marker: HTMLElement } | null = null;
+  let autoFrame = 0;
+
+  function stopAutoScroll() {
+    cancelAnimationFrame(autoFrame);
+    auto?.marker.remove(); auto = null;
+    sc.classList.remove('auto-scrolling');
+  }
+
+  function startAutoScroll(e: PointerEvent) {
+    hooks.cancelDrawing(); stopDrag?.(); cancelAnimationFrame(flick);
+    const marker = h('div', { class: 'auto-scroll-origin', 'aria-hidden': 'true', style: { left: `${e.clientX}px`, top: `${e.clientY}px` } }, icon('autoScroll', 18));
+    document.body.append(marker);
+    auto = { session: viewer.session, x: e.clientX, y: e.clientY, originX: e.clientX, originY: e.clientY, marker };
+    sc.classList.add('auto-scrolling');
+    let last = performance.now();
+    const speed = (delta: number) => Math.sign(delta) * Math.min(1800, Math.pow(Math.max(0, Math.abs(delta) - 10), 1.3) * 1.8);
+    const frame = (now: number) => {
+      if (!auto || viewer.session !== auto.session || !sc.isConnected || document.hidden) { stopAutoScroll(); return; }
+      const seconds = Math.min(32, now - last) / 1000; last = now;
+      sc.scrollLeft += speed(auto.x - auto.originX) * seconds;
+      sc.scrollTop += speed(auto.y - auto.originY) * seconds;
+      autoFrame = requestAnimationFrame(frame);
+    };
+    autoFrame = requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('pointermove', e => { if (auto && e.pointerType === 'mouse') { auto.x = e.clientX; auto.y = e.clientY; } }, true);
+  window.addEventListener('pointerdown', e => {
+    if (!auto) return;
+    stopAutoScroll();
+    // A second wheel click stops scrolling, including when it lands in the other pane.
+    if (e.button === 1) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+  window.addEventListener('keydown', e => {
+    if (!auto || ['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+    stopAutoScroll();
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopAutoScroll(); });
 
   // Native pinch must reach the page, but it must never magnify toolbars, panels or Home.
   window.addEventListener('wheel', e => {
@@ -32,6 +73,7 @@ export function installGestures(viewer: Viewer, hooks: GestureHooks) {
   window.addEventListener('pointermove', track, true);
   sc.addEventListener('wheel', e => {
     if (!viewer.session) return;
+    stopAutoScroll();
     const px = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
     const pinch = (e.ctrlKey || e.metaKey) && !ctrlHeld;
     // "The wheel zooms" is meant for a mouse wheel, so movement that looks like a touchpad's (sideways,
@@ -45,15 +87,17 @@ export function installGestures(viewer: Viewer, hooks: GestureHooks) {
     viewer.zoomAt(viewer.scale * Math.exp(-px * (pinch ? 0.01 : 0.0018)), e.clientX, e.clientY);
   }, { passive: false });
 
-  // ---- Middle button: drag to move in any direction ----
+  // ---- Middle button: click once to scroll with the pointer, click again to stop ----
   sc.addEventListener('pointerdown', e => {
     if (e.button !== 1 || !viewer.session) return;
+    if ((e.target as Element).closest('input, textarea, select, button, a, [contenteditable=true], .inline-editor')) return;
     e.preventDefault();
     e.stopPropagation();
-    drag(e, 'mouse');
+    startAutoScroll(e);
   }, true);
-  // Stops Windows' auto-scroll circle from appearing.
+  // Use our own toggle consistently in the browser and Windows host.
   sc.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });
+  sc.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
 
   // ---- Touch: one finger moves, two fingers pinch ----
   const touches = new Map<number, { x: number; y: number }>();
@@ -62,6 +106,7 @@ export function installGestures(viewer: Viewer, hooks: GestureHooks) {
   let stopDrag: (() => void) | null = null;
   sc.addEventListener('pointerdown', e => {
     if (e.pointerType !== 'touch' || !viewer.session) return;
+    if ((e.target as Element).closest('.markdown-editor')) return;
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     cancelAnimationFrame(flick);
     if (touches.size === 2) {
@@ -75,7 +120,7 @@ export function installGestures(viewer: Viewer, hooks: GestureHooks) {
     }
     if (touches.size === 1 && !hooks.drawsWith('touch')) {
       e.stopPropagation();
-      drag(e, 'touch');
+      drag(e);
     }
   }, true);
   window.addEventListener('pointermove', e => {
@@ -100,7 +145,7 @@ export function installGestures(viewer: Viewer, hooks: GestureHooks) {
       // Continue from the finger's current position, rather than its position before the pinch.
       if (wasPinching && touches.size === 1 && e.type !== 'pointercancel') {
         const [pointerId, p] = [...touches][0];
-        drag({ pointerId, clientX: p.x, clientY: p.y }, 'touch');
+        drag({ pointerId, clientX: p.x, clientY: p.y });
       }
     }
   };
@@ -108,6 +153,7 @@ export function installGestures(viewer: Viewer, hooks: GestureHooks) {
   window.addEventListener('pointercancel', lift);
 
   window.addEventListener('blur', () => {
+    stopAutoScroll();
     ctrlHeld = false;
     stopDrag?.();
     cancelAnimationFrame(flick);
@@ -116,7 +162,7 @@ export function installGestures(viewer: Viewer, hooks: GestureHooks) {
   });
 
   /** Drags the page under the pointer, and lets a quick finger flick glide on. */
-  function drag(e: Pick<PointerEvent, 'pointerId' | 'clientX' | 'clientY'>, kind: 'mouse' | 'touch') {
+  function drag(e: Pick<PointerEvent, 'pointerId' | 'clientX' | 'clientY'>) {
     stopDrag?.();
     cancelAnimationFrame(flick);
     const id = e.pointerId;
@@ -134,7 +180,7 @@ export function installGestures(viewer: Viewer, hooks: GestureHooks) {
     const up = (u: PointerEvent) => {
       if (u.pointerId !== id) return;
       stop();
-      if (u.type === 'pointercancel' || kind !== 'touch' || pinch || performance.now() - lt > 80) return;
+      if (u.type === 'pointercancel' || pinch || performance.now() - lt > 80) return;
       // Glide, slowing down smoothly.
       let last = performance.now();
       const glide = () => {

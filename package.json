@@ -1,6 +1,6 @@
 {
   "name": "pdfy",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Meletiq PDF: a fast, crash-resistant PDF editor with image theme conversion",
@@ -14,6 +14,12 @@
   "dependencies": {
     "@cantoo/fontkit": "^2.0.12",
     "@cantoo/pdf-lib": "^2.11.1",
+    "@tiptap/core": "3.33.0",
+    "@tiptap/extension-highlight": "3.33.0",
+    "@tiptap/extension-list": "3.33.0",
+    "@tiptap/extension-table": "3.33.0",
+    "@tiptap/markdown": "3.33.0",
+    "@tiptap/starter-kit": "3.33.0",
     "fflate": "^0.8.3",
     "marked": "^18.1.3",
     "pdfjs-dist": "^6.5.438"

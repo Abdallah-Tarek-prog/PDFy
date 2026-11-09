@@ -245,7 +245,7 @@ function pages(app: App): HTMLElement {
     h('div', { class: 'st-tips' },
       h('h3', { class: 'st-sub' }, 'Ways to move around'),
       h('ul', null,
-        h('li', null, 'Drag with the middle mouse button, or hold Space and drag, to move in any direction.'),
+        h('li', null, 'Click the mouse wheel, then move the pointer to scroll. Click the wheel again to stop. Hold Space and drag to pan.'),
         h('li', null, 'Pinch on the touchpad, or hold Ctrl and turn the wheel, to zoom right where the pointer is.'),
         h('li', null, 'On a touch screen, one finger moves the page and two fingers pinch to zoom.'),
         h('li', null, 'Two fingers on the touchpad scroll up, down and sideways.'))));

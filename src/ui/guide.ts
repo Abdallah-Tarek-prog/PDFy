@@ -7,7 +7,7 @@ import { getSettings, saveSettings } from '../core/settings';
 import { h, icon } from './dom';
 
 /** Raise this when the guide gains something new, so it opens once after the update. */
-export const GUIDE_VERSION = '2026-11-06';
+export const GUIDE_VERSION = '2026-11-09';
 
 interface Slide { id: string; title: string; lead: string; points: string[]; keys?: string[]; isNew?: boolean; art: () => HTMLElement }
 
@@ -33,8 +33,8 @@ const SLIDES: Slide[] = [
     art: () => el('ga-art', page(line(60), line(80), el('ga-crop', el('ga-shot dark small', line(80, 'hl'), line(60))), line(70))),
   },
   {
-    id: 'markdown', title: 'Markdown notes that format themselves', lead: 'Choose Markdown on the Edit toolbar, click the page and type. Click away and it becomes neat notes, like Obsidian.',
-    points: ['Headings, bold, ==highlights==, tasks, tables, callouts, code and equations.', 'Double-click a note to edit the Markdown again.', 'Pick a look, or make your own, under Note themes. Notes print as sharp text.'],
+    id: 'markdown', title: 'Formatted notes with Markdown', lead: 'Choose Markdown on the Edit toolbar, then click the page. Edit formatted text directly and choose Done to read the finished note.',
+    points: ['Use the toolbar for bold, italic, colours, headings, bullets and numbered lists.', 'Import a .md file, or choose Source for Markdown, tables, callouts and equations. Double-click a note to edit again.', 'Pick a look, or make your own, under Note themes. Notes print as sharp text.'],
     keys: ['Ctrl+Shift+M'],
     art: () => el('ga-art ga-row', el('ga-md raw', h('code', null, '# Key idea'), h('code', null, 'Energy is **conserved**'), h('code', null, '- [x] Read chapter 2'), h('code', null, '> [!tip] Remember')),
       el('ga-arrow', icon('chevRight', 26)),
@@ -61,7 +61,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: 'move', title: 'Move around freely', lead: 'Pinch the touchpad, or hold Ctrl and turn the wheel, to zoom right where the pointer is.',
-    points: ['Drag with the middle mouse button, or hold Space and drag, to move in any direction.', 'On a touch screen, one finger moves and two fingers zoom.', 'In Settings, the mouse wheel can zoom without Ctrl.'],
+    points: ['Click the mouse wheel once, then move the pointer to scroll. Click it again to stop. Hold Space and drag to pan.', 'On a touch screen, one finger moves and two fingers zoom.', 'In Settings, the mouse wheel can zoom without Ctrl.'],
     isNew: true,
     art: () => el('ga-art', el('ga-zoom', page(line(70), line(85), line(60)), el('ga-pinch', h('span', null), h('span', null)))),
   },

@@ -458,6 +458,7 @@ export class App {
 
   private showSelBar() {
     const sel = window.getSelection();
+    if (sel?.anchorNode?.parentElement?.closest('.markdown-editor')) { this.selBar.hidden = true; return; }
     const text = sel?.toString().trim();
     if (!sel || !text || !sel.rangeCount || this.tools.tool !== 'hand' || !this.viewer.scroller.contains(sel.anchorNode)) { this.selBar.hidden = true; return; }
     const rect = sel.getRangeAt(0).getBoundingClientRect();
@@ -1699,7 +1700,7 @@ export class App {
     const target = e.target as Element;
     const pageEl = target.closest('.page') as HTMLElement | null;
     const page = pageEl ? session.pageById(pageEl.dataset.pageId!) : null;
-    if (!page || target.closest('input, textarea, select')) return;
+    if (!page || target.closest('input, textarea, select, .markdown-editor')) return;
     const selected = window.getSelection()?.toString();
     e.preventDefault();
     const node = target.closest('[data-id]');

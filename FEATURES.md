@@ -83,7 +83,7 @@ Laid out like the Xodo app installed on this PC (Xodo 6.3.4, the Microsoft Store
 | Pen shortcut from Read | I opens Edit with the pen, even right after typing a thickness | ✅ |
 | Colours keep their size | Each colour of each tool keeps its own thickness and opacity | ✅ |
 | Pen and tablet settings | Pointer while drawing (cross, dot, pen-size ring, arrow, hidden), only the pen draws, side button (erase, select, move, menu), eraser end, write straight away in Read, smoothing, Shift for straight lines, a test pad that shows what Windows reports | ✅ simulated pen events; 🔵 not yet tried with a real tablet |
-| Moving around | Ctrl+wheel and touchpad pinch zoom at the pointer, middle-button drag, one-finger move and two-finger pinch on touch screens, optional wheel-zooms setting | ✅ simulated events; 🔵 not yet tried on a real touchpad or touch screen |
+| Moving around | Ctrl+wheel and touchpad pinch zoom at the pointer, click the wheel to start pointer-controlled scrolling and click again to stop, one-finger move and two-finger pinch on touch screens, optional wheel-zooms setting | ✅ simulated events; 🔵 not yet tried on a real touchpad or touch screen |
 | Settings window | Six clear sections. Interface themes as live pictures, applied with one click. Make your own theme from five colours, with a readability warning | ✅ |
 | Feature guide | Twelve illustrated steps on what PDFy does differently. Opens on the first start and once after each update. Also in Settings and More | ✅ |
 | Collections | Named, coloured collections on Home also appear as collapsible tab groups. Rename or recolour a group, drag documents between groups, or close a group while keeping its saved file links. Only a link is kept, never a copy | ✅ |
@@ -96,7 +96,7 @@ All of these are on the **Edit** toolbar, beside the text tools (they had their 
 | Feature | What the user sees | Status |
 |---|---|---|
 | Equations | Type LaTeX with a live preview and a palette of symbols. It lands on the page as a movable, resizable object. Double-click to edit. Saved as sharp vector drawing, and stays editable after reopening | ✅ |
-| Markdown notes | Click the page and type Markdown. Click away and it becomes formatted notes, like Obsidian: headings, bold, highlights, callouts, tasks, tables, code, equations. Double-click to edit the Markdown again | ✅ |
+| Markdown notes | Edit formatted text with a toolbar: bold, italic, underline, text colours, headings, bullets, numbering, tasks and highlights. Import .md or switch to Source for Markdown, tables, callouts and equations. Done shows the finished note; double-click to edit again. Formatting survives PDF save/reopen | ✅ |
 | Note themes | 8 ready-made looks. Every font, size, spacing and colour can be changed. Editing a ready-made one makes your own copy | ✅ |
 | Notes in the saved file | The desktop app saves notes and equations as real vector text, the same as on screen. In testing, three boxes took 0.9 s to save, and 4 ms when unchanged | ✅ |
 | Arabic in saved notes | Shows correctly, right to left, as real text. Copying it out of the saved PDF gives the joined letter shapes in display order, because that is how the print engine writes Arabic | 🟡 |

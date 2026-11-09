@@ -113,6 +113,15 @@ try {
   await page.eval(`window.__pdfy.toggleSplitView(); 1`);
   check('Merging Windows panes keeps all document tabs', await page.eval(`!window.__pdfy.splitView && window.__pdfy.sessions.length === 8 && window.__pdfy.panes[1].el.hidden`));
 
+  await page.eval(`(() => { const a=window.__pdfy; a.viewer.setScale(3); const sc=a.viewer.scroller,r=sc.getBoundingClientRect(); sc.scrollTop=200; window.__scrollStart=sc.scrollTop; const x=r.left+r.width/2,y=r.top+r.height/2; sc.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:1,buttons:4,pointerType:'mouse',clientX:x,clientY:y})); window.dispatchEvent(new PointerEvent('pointerup',{button:1,pointerType:'mouse',clientX:x,clientY:y})); window.dispatchEvent(new PointerEvent('pointermove',{pointerType:'mouse',clientX:x,clientY:y+100})); })(); 1`);
+  await wait(300);
+  check('Wheel-click scrolling works after release in the Windows app', await page.eval(`window.__pdfy.viewer.scroller.scrollTop>window.__scrollStart+50 && !!document.querySelector('.auto-scroll-origin')`));
+  await page.eval(`window.dispatchEvent(new PointerEvent('pointerdown',{button:1,pointerType:'mouse',cancelable:true})); 1`);
+  check('A second wheel click stops Windows auto-scroll', await page.eval(`!document.querySelector('.auto-scroll-origin')`));
+  await page.eval(`(() => { const a=window.__pdfy; a.viewer.setScale(1); a.viewer.goTo(0); a.setMode('edit'); a.tools.setTool('markdown'); a.tools.openEditor(a.viewer.views.get(a.session.pages[0].id),{...a.tools.base('text','markdown'),rect:[30,400,330,650],markdown:true,text:'**Windows note**'},true); })(); 1`);
+  check('The formatted Markdown toolbar works in Windows WebView2', await page.eval(`!!document.querySelector('.markdown-editor [aria-label="Bold (Ctrl+B)"]') && document.querySelector('.md-editable strong')?.textContent==='Windows note'`));
+  await page.eval(`document.querySelector('.md-done').click(); window.__pdfy.tools.settle().then(()=>{for(const s of window.__pdfy.sessions)s.dirty=false;});`);
+
   // 5. Minimise: the window must not slide sideways first.
   const hwnd = ps(`(Get-Process -Id ${main.pid}).MainWindowHandle`);
   const sampler = join(work, 'sample.ps1');

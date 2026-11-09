@@ -341,7 +341,7 @@ function saveSettingsSidebar() { localStorage.setItem('pdfy.settings', JSON.stri
 
 // ---- Moving around ----
 
-await test('Zoom: Ctrl+wheel and a touchpad pinch zoom at the pointer, the middle button moves the page', async () => {
+await test('Zoom: Ctrl+wheel and a touchpad pinch zoom at the pointer, wheel click toggles scrolling', async () => {
   const s = await openFixture('normal.pdf');
   app.viewer.setScale(1);
   await settle();
@@ -363,9 +363,11 @@ await test('Zoom: Ctrl+wheel and a touchpad pinch zoom at the pointer, the middl
   sc.scrollLeft = 200; sc.scrollTop = 200;
   const l0 = sc.scrollLeft, t0 = sc.scrollTop;
   ptr('pointerdown', cx, cy, { button: 1, buttons: 4 }, sc);
-  window.dispatchEvent(new PointerEvent('pointermove', { clientX: cx - 80, clientY: cy - 60, pointerId: 7, buttons: 4 }));
-  window.dispatchEvent(new PointerEvent('pointerup', { clientX: cx - 80, clientY: cy - 60, pointerId: 7, button: 1 }));
-  ok(sc.scrollLeft > l0 + 40 && sc.scrollTop > t0 + 30, `middle-drag moved right and down (${sc.scrollLeft - l0}, ${sc.scrollTop - t0})`);
+  window.dispatchEvent(new PointerEvent('pointerup', { clientX: cx, clientY: cy, pointerId: 7, button: 1, pointerType: 'mouse' }));
+  window.dispatchEvent(new PointerEvent('pointermove', { clientX: cx + 100, clientY: cy + 100, pointerId: 7, buttons: 0, pointerType: 'mouse' }));
+  await wait(220);
+  ok(sc.scrollLeft > l0 + 40 && sc.scrollTop > t0 + 30, `wheel-click scrolling moved right and down (${sc.scrollLeft - l0}, ${sc.scrollTop - t0})`);
+  ptr('pointerdown', cx, cy, {button:1,buttons:4}, sc);
   // Two fingers on a touch screen pinch to zoom, even with a drawing tool chosen.
   app.setMode('edit');
   app.tools.setTool('pen');

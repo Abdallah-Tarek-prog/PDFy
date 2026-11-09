@@ -64,7 +64,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install.ps1
 | Settings | The Settings window, theme gallery and your own theme | `src/ui/settings.ts`, `src/ui/themes.ts` |
 | Feature guide | The illustrated tour | `src/ui/guide.ts` |
 | Voice notes | Recording with a level meter, and the player | `src/ui/voice.ts` |
-| Moving around | Ctrl+wheel and pinch zoom, middle-button drag, touch | `src/view/gestures.ts` |
+| Moving around | Ctrl+wheel and pinch zoom, wheel-click auto-scroll, touch | `src/view/gestures.ts` |
 | Pen and tablet | Pen buttons, pen-only drawing, pointer shapes, per-colour sizes | `src/view/tools.ts` |
 | Notes and equations in saved files | Printed by the engine into a small PDF, placed as real vector text | `src/study/box.ts`, `host/Program.cs` |
 | Offline dictionary | Wiktionary data, split into small files that load on demand | `vendor-dict/`, built by `scripts/build-dictionary.mjs` |
@@ -118,6 +118,8 @@ npm test
 | `npm test` | Theme engine and geometry, no browser |
 | `node tests/browser-run.mjs --fixture open-order-tests.js` | A–Z tabs from pickers, drops, separate opens, collections, history and recovery; selected theme is preserved |
 | `node tests/browser-run.mjs --fixture split-view-tests.js` | Independent panes, toolbar focus, editing/saving, tab moves, collections, empty-pane opening and narrow-window layout |
+| `node tests/browser-run.mjs --fixture auto-scroll-tests.js` | Wheel-click scrolling, cancellation, drawing safety and independent split panes |
+| `node tests/browser-run.mjs --fixture markdown-editor-tests.js` | Formatted toolbar, .md import/source, safe rendering, PDF save/reopen and split-pane editing |
 | `node tests/browser-run.mjs --fixture updater-ui-tests.js` | Update settings, download/error/ready states and narrow-window layout |
 | `dotnet run --project tests/native-update/UpdateTests.csproj` | Package checksums, unsafe archive paths, install backups and rollback on a locked file |
 | `node tests/updater-host-test.mjs` | Published-release download and restart, including Cancel on unsaved work; requires `PDFY_OLD_EXE` pointing to an older build with the updater |

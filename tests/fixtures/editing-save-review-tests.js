@@ -131,12 +131,15 @@ await test('Escape commits new/existing text and Markdown, then returns to Pan',
   for (const markdown of [false, true]) {
     const a = { ...app.tools.base('text', markdown ? 'markdown' : 'text'), rect: [30, 300, 300, 360], markdown };
     app.tools.setTool(markdown ? 'markdown' : 'text'); app.tools.openEditor(v, a, true);
-    let editor = document.querySelector('.inline-editor'); editor.value = markdown ? '**Kept Markdown**' : 'Kept text';
+    if(markdown) document.querySelector('.markdown-editor .md-editor-action[title="Edit the Markdown source"]').click();
+    let editor = document.querySelector(markdown ? '.md-editor-source' : 'textarea.inline-editor'); editor.value = markdown ? '**Kept Markdown**' : 'Kept text';
     editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await app.tools.settle();
     let saved = p.annots.find(n => n.id === a.id);
     ok(saved?.text.includes('Kept') && app.tools.tool === 'hand', 'Escape discarded a new draft or did not select Pan');
-    app.tools.openEditor(v, saved, false); editor = document.querySelector('.inline-editor'); editor.value += ' edited';
+    app.tools.openEditor(v, saved, false);
+    if(markdown) document.querySelector('.markdown-editor .md-editor-action[title="Edit the Markdown source"]').click();
+    editor = document.querySelector(markdown ? '.md-editor-source' : 'textarea.inline-editor'); editor.value += ' edited';
     editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await app.tools.settle(); saved = p.annots.find(n => n.id === a.id);
     ok(saved.text.endsWith(' edited') && app.tools.tool === 'hand', 'Escape discarded an existing edit');

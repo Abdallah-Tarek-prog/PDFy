@@ -27,6 +27,35 @@ const md = new Marked({ gfm: true, breaks: true });
 md.use({
   extensions: [
     {
+      name: 'noteColour', level: 'inline',
+      start: (src: string) => { const i=src.indexOf('<span'); return i<0 ? undefined : i; },
+      tokenizer(this: { lexer: { inlineTokens(s: string): Tokens.Generic[] } }, src: string) {
+        const match=/^<span\s+style=["']color:\s*(#[0-9a-f]{6});?["']>([\s\S]*?)<\/span>/i.exec(src);
+        return match ? { type:'noteColour', raw:match[0], colour:match[1], tokens:this.lexer.inlineTokens(match[2]) } : undefined;
+      },
+      renderer(this: { parser: { parseInline(t: Tokens.Generic[]): string } }, token: Tokens.Generic) {
+        return `<span class="md-color" data-md-colour="${token.colour}">${this.parser.parseInline(token.tokens as Tokens.Generic[])}</span>`;
+      },
+    },
+    {
+      name: 'noteUnderline', level: 'inline',
+      start: (src: string) => { const i=src.toLowerCase().indexOf('<u>'); return i<0 ? undefined : i; },
+      tokenizer(this: { lexer: { inlineTokens(s: string): Tokens.Generic[] } }, src: string) {
+        const match=/^<u>([\s\S]*?)<\/u>/i.exec(src);
+        return match ? { type:'noteUnderline', raw:match[0], tokens:this.lexer.inlineTokens(match[1]) } : undefined;
+      },
+      renderer(this: { parser: { parseInline(t: Tokens.Generic[]): string } }, token: Tokens.Generic) { return `<u>${this.parser.parseInline(token.tokens as Tokens.Generic[])}</u>`; },
+    },
+    {
+      name: 'noteFormattingBlock', level: 'block',
+      start: (src: string) => { const i=src.search(/(^|\n)(?=<)/m); return i<0 ? undefined : i; },
+      tokenizer(this: { lexer: { inlineTokens(s: string): Tokens.Generic[] } }, src: string) {
+        const match=/^(?:<span\s+style=["']color:\s*#[0-9a-f]{6};?["']>[\s\S]*?<\/span>|<u>[\s\S]*?<\/u>)(?:[ \t]*\n|$)/i.exec(src);
+        return match ? { type:'noteFormattingBlock', raw:match[0], tokens:this.lexer.inlineTokens(match[0].trim()) } : undefined;
+      },
+      renderer(this: { parser: { parseInline(t: Tokens.Generic[]): string } }, token: Tokens.Generic) { return `<p>${this.parser.parseInline(token.tokens as Tokens.Generic[])}</p>`; },
+    },
+    {
       name: 'mathBlock', level: 'block',
       start: (src: string) => { const i = src.indexOf('$$'); return i < 0 ? undefined : i; },
       tokenizer(src: string) {
@@ -104,8 +133,8 @@ md.use({
   },
 });
 
-const ALLOWED = new Set(['A', 'B', 'BLOCKQUOTE', 'BR', 'CODE', 'DEL', 'DIV', 'EM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'I', 'LI', 'MARK', 'OL', 'P', 'PRE', 'S', 'SPAN', 'STRONG', 'TABLE', 'TBODY', 'TD', 'TFOOT', 'TH', 'THEAD', 'TR', 'UL']);
-const ATTRS: Record<string, string[]> = { '*': ['class', 'dir'], A: ['href'], OL: ['start'], TD: ['align'], TH: ['align'], SPAN: ['class', 'data-tex', 'data-display'] };
+const ALLOWED = new Set(['A', 'B', 'BLOCKQUOTE', 'BR', 'CODE', 'DEL', 'DIV', 'EM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'I', 'LI', 'MARK', 'OL', 'P', 'PRE', 'S', 'SPAN', 'STRONG', 'TABLE', 'TBODY', 'TD', 'TFOOT', 'TH', 'THEAD', 'TR', 'U', 'UL']);
+const ATTRS: Record<string, string[]> = { '*': ['class', 'dir'], A: ['href'], OL: ['start'], TD: ['align'], TH: ['align'], SPAN: ['class', 'data-tex', 'data-display', 'data-md-colour'] };
 
 /** A second safety net behind the renderer: anything not on the list is removed. */
 function clean(html: string): DocumentFragment {
@@ -118,6 +147,8 @@ function clean(html: string): DocumentFragment {
         if (!ATTRS['*'].includes(at.name) && !(ATTRS[el.tagName] ?? []).includes(at.name)) el.removeAttribute(at.name);
       }
       if (el.tagName === 'A' && !/^(https?:|mailto:)/i.test(el.getAttribute('href') ?? '')) el.removeAttribute('href');
+      const colour=el.getAttribute('data-md-colour');
+      if (el.tagName === 'SPAN' && colour && /^#[0-9a-f]{6}$/i.test(colour)) (el as HTMLElement).style.color=colour;
       walk(el);
     }
   };

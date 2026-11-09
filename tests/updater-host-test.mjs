@@ -89,7 +89,7 @@ try {
   await page.eval(`[...document.querySelectorAll('.dialog-foot button')].find(b => b.textContent === "Don't save").click(); 1`);
   page.ws.close(); page = await connect(version);
   check(hash(join(install, 'PDFy.exe')) === hash(join(release, 'PDFy.exe')), 'Updater installs the published native executable and restarts');
-  check(await page.eval(`!!document.querySelector('[aria-label="Side by side"]')`), 'New web interface loads after updating the existing browser profile');
+  check(await page.eval(`(() => { const a=window.__pdfy,s=a.newDocument(); a.setMode('edit'); a.tools.setTool('markdown'); a.tools.openEditor(a.viewer.views.get(s.pages[0].id),{...a.tools.base('text','markdown'),rect:[30,400,330,650],markdown:true,text:''},true); const found=!!document.querySelector('.markdown-editor [aria-label="Bold (Ctrl+B)"]'); document.querySelector('.md-done')?.click(); return found; })()`), 'New formatted Markdown editor loads after updating the existing browser profile');
   check(hash(join(install, '.previous-release/PDFy.exe')) === oldHash, 'Previous native release is retained for rollback');
   check(readFileSync(join(install, 'owner-document.pdf'), 'utf8') === 'owner document marker', 'Unrelated documents remain untouched');
   await page.eval(`window.chrome.webview.postMessage({type:'update-check'}); 1`);

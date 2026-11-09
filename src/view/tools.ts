@@ -3,6 +3,7 @@
 import { annotBounds, measureLabel, noteRect, quadsBounds, remapAnnot, segsToSvg, simplify, smoothPath } from '../core/geometry';
 import { FONT_CSS, placeBox, pointsBounds, toPdf, toScreen, uid, viewportFor, type Annot, type FontFamily, type Kind, type PageRef } from '../core/model';
 import { fitMarkdown } from '../study/box';
+import { createMarkdownEditor } from '../study/md-editor';
 import { fontCss } from '../study/fonts';
 import { h, reportError, s, safe } from '../ui/dom';
 import { getSettings } from '../core/settings';
@@ -110,6 +111,7 @@ export class Tools {
       try { this.gesture?.move(e); } catch (err) { console.error(err); }
     });
     window.addEventListener('pointerup', e => {
+      if (e.button === 1) return;
       if (this.gesture && e.pointerId !== this.pointerId) return;
       const g = this.gesture;
       this.gesture = null;
@@ -1048,6 +1050,7 @@ export class Tools {
   /** Places a text area over the box, at the size the text will have on the page. */
   openEditor(v: PageView, a: Annot, isNew: boolean) {
     this.commitEdit();
+    if (a.markdown) { this.openMarkdownEditor(v, a, isNew); return; }
     const editingSession = this.viewer.session!;
     const b = annotBounds({ ...a, pts: undefined, kind: 'text' });
     const p0 = toScreen(v.vp, b[0], b[1]), p1 = toScreen(v.vp, b[2], b[3]);
@@ -1064,15 +1067,7 @@ export class Tools {
         fontFamily: a.fontName ? fontCss(a.fontName) : FONT_CSS[a.font ?? 'helvetica'],
       },
     });
-    if (a.markdown) {
-      // While typing it is plain marks, in an easy-to-read fixed font.
-      ta.classList.add('md-source');
-      ta.placeholder = '# Title\n**bold**  ==highlight==  $x^2$\n- [ ] task\n\nClick away to format.';
-      ta.style.fontFamily = 'Consolas, "Cascadia Code", monospace';
-      ta.style.fontSize = `${Math.max(11, 12) * k}px`;
-      ta.style.width = `${Math.max(240 * k, Math.abs(p1[0] - p0[0]))}px`;
-    }
-    const minimum = Math.max(a.markdown ? 120 * k : 24, Math.abs(p1[1] - p0[1]));
+    const minimum = Math.max(24, Math.abs(p1[1] - p0[1]));
     const grow = () => {
       const page = v.el.getBoundingClientRect(), visible = this.viewer.scroller.getBoundingClientRect();
       const editorTop = parseFloat(ta.style.top);
@@ -1105,24 +1100,6 @@ export class Tools {
       const r = a.rect;
       const newH = Math.max(r[3] - r[1], hPt);
       const updated: Annot = { ...this.adopt(a), text, contents: text };
-      if (a.markdown) {
-        // Kept for the document this was typed in, even if another one is opened meanwhile.
-        const session = editingSession, page = v.page;
-        this.track((async () => {
-          const fitted = await fitMarkdown(updated);
-          if (isNew) {
-            session.addAnnots(page, [fitted], 'Add Markdown');
-            if (this.viewer.session === session) this.afterCreate(v, fitted);
-            return;
-          }
-          const now = page.annots.find(x => x.id === a.id);
-          if (!now) return; // Deleted meanwhile.
-          const { ghost: _g, ...plain } = now;
-          const next = now === a ? fitted : await fitMarkdown({ ...plain, text, contents: text });
-          session.replaceAnnot(page, now, next, 'Edit Markdown');
-        })().catch(err => reportError('Formatting the note', err)));
-        return;
-      }
       if (!a.angle) updated.rect = [r[0], r[3] - newH, r[2], r[3]];
       if (isNew) { editingSession.addAnnots(v.page, [updated], 'Add text'); if (this.viewer.session === editingSession) this.afterCreate(v, updated); }
       else editingSession.replaceAnnot(v.page, a, updated, 'Edit text');
@@ -1134,6 +1111,40 @@ export class Tools {
       if (e.key === 'Enter' && e.ctrlKey) commit(true);
     });
     ta.addEventListener('blur', () => setTimeout(() => commit(true), 0));
+  }
+
+  private openMarkdownEditor(v: PageView, a: Annot, isNew: boolean) {
+    const session = this.viewer.session!, page = v.page, k = this.viewer.scale;
+    const bounds = annotBounds(a), p0 = toScreen(v.vp, bounds[0], bounds[1]), p1 = toScreen(v.vp, bounds[2], bounds[3]);
+    const anchor = { left: Math.min(p0[0],p1[0]), top: Math.min(p0[1],p1[1]) };
+    let control: ReturnType<typeof createMarkdownEditor> | undefined, done = false;
+    const grow = () => {
+      if (!control?.el.isConnected) return;
+      const paper = v.el.getBoundingClientRect(), visible = this.viewer.scroller.getBoundingClientRect();
+      const width = Math.max(180, Math.min(Math.max(340, Math.abs(p1[0]-p0[0])), visible.width-24));
+      const left = Math.max(visible.left-paper.left+8, Math.min(anchor.left, visible.right-paper.left-width-12));
+      const top = Math.max(visible.top-paper.top+8, Math.min(anchor.top, visible.bottom-paper.top-220));
+      Object.assign(control.el.style, { left: `${left}px`, top: `${top}px`, width: `${width}px` });
+      control.resize(Math.max(160, visible.bottom-paper.top-top-12));
+    };
+    const commit = () => {
+      if (done || !control) return;
+      done = true;
+      const { text, mdTheme, fontSize } = control.value(); control.destroy(); this.editing = null;
+      if (!text.trim()) { if (!isNew) session.removeAnnot(page,a); return; }
+      const updated: Annot = { ...this.adopt(a), text, contents: text, mdTheme, fontSize };
+      this.track((async () => {
+        const fitted = await fitMarkdown(updated);
+        if (isNew) { session.addAnnots(page,[fitted],'Add Markdown'); if (this.viewer.session === session) this.afterCreate(v,fitted); return; }
+        const now = page.annots.find(note=>note.id === a.id); if (!now) return;
+        const next = now === a ? fitted : await fitMarkdown({ ...this.adopt(now), text, contents: text, ...(mdTheme !== a.mdTheme ? { mdTheme } : {}), ...(fontSize !== a.fontSize ? {fontSize} : {}) });
+        session.replaceAnnot(page,now,next,'Edit Markdown');
+      })().catch(error=>reportError('Formatting the note',error)));
+    };
+    control = createMarkdownEditor({ text: a.text ?? '', theme: a.mdTheme, size: a.fontSize ?? 12, scale: k,
+      onInput: () => session.markDirty(), onResize: grow, onDone: back => { commit(); if (back) this.setTool(REST_TOOL); } });
+    this.editing = { commit };
+    v.el.append(control.el); grow(); control.focus();
   }
 
   openCommentEditor(v: PageView, a: Annot) {

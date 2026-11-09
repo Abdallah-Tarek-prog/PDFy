@@ -42,9 +42,15 @@ Read this first, continue from "Next", then update this file.
 - Repository is public and release v0.2.0 is published (37.5 MB). All 94 relevant checks passed, including a complete public-release download/install/restart and Cancel on unsaved work. Installed and verified all 936 app files, retaining `.previous-release`.
 - Start menu and pinned shortcuts use `Meletiq.ico` and `Meletiq.PDF`; the owner confirmed the eagle now appears in the taskbar menu.
 
+## Formatted Markdown and wheel-click scrolling on 2026-11-09
+- Version 0.4.0 adds middle-button toggle scrolling: click the wheel, move the pointer to control speed/direction, click again to stop. It stays inside its PDF pane and stops on tab changes, Escape or loss of focus.
+- Markdown notes now open in a formatted editor with headings, bold/italic/underline, text colours, highlights, bullets, numbering, tasks, quote/code, undo/redo, note theme and size. Import .md and Source preserve the existing Markdown format; Done/outside click renders the finished note.
+- Source mode retains equations, wiki links, callouts, tables and comments. Literal HTML and image Markdown remain inert while editing; only validated text-colour spans and underline are allowed as formatting. Added dependency licenses to the shipped web files.
+- Typecheck/build, 26 unit checks, 9 formatted-editor checks, 7 auto-scroll checks, 18 editing/save regressions, 17 split-pane checks, affected study checks, 22 feature/settings checks, 20 real Windows-host checks and 7 package/rollback checks passed. Both full-window and narrow split-pane editor screenshots were checked. Built a 37.7 MB archive with 937 verified app files (47.4 MB installed). Publication, real public upgrade and owner installation are next.
+
 ## Next
 0. Side-by-side workspace shipped in v0.3.0. Both halves have their own selected document, tab bar, reading state and tools. Tabs can move between halves; toolbar/panels follow the selected pane. All 17 split-view checks, 17 Windows-host checks, typecheck/build, 26 unit checks and affected tab/library/session/reload regressions passed. Published the 37.5 MB release, verified the complete 0.2.0→0.3.0 upgrade with 12 checks (including new web assets in an existing profile), installed all 936 verified files and reopened the owner's app. `.previous-release` contains 0.2.0.
-1. Future installations need the owner's Meletiq PDF closed; never close it for them. The current build is installed.
+1. Future installations need the owner's Meletiq PDF closed; never close it for them. Version 0.4.0 is built and tested; 0.3.0 is currently installed.
 2. Fix the 5 failing page tests listed above (history entries, font and colour pickers).
 3. Ask the owner whether minimise still looks wrong after installing; if so, get a screen recording.
 4. Try the pen settings with the owner's real graphics tablet, and pinch on a real touchpad: so far only simulated events were tested.

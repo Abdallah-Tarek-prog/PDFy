@@ -116,6 +116,7 @@ export class Study {
 
   private selectedText(): string {
     const sel = window.getSelection();
+    if (sel?.anchorNode?.parentElement?.closest('.markdown-editor')) return '';
     if (!sel || sel.isCollapsed || !this.host.viewer.scroller.contains(sel.anchorNode)) return '';
     return sel.toString().trim();
   }

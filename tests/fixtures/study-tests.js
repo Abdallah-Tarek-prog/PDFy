@@ -172,7 +172,8 @@ await test('Markdown: type a note on the page, it formats on click-away, then sa
   const [x, y] = screen(page, 72, 700);
   pointer('pointerdown', x, y);
   pointer('pointerup', x, y);
-  const ta = await until(() => document.querySelector('textarea.inline-editor.md-source'), 3000, 'the Markdown editor');
+  (await until(() => document.querySelector('.markdown-editor .md-editor-action[title="Edit the Markdown source"]'), 3000, 'the Markdown editor')).click();
+  const ta = document.querySelector('.md-editor-source');
   ta.value = NOTE;
   ta.dispatchEvent(new Event('input'));
   ta.blur();
@@ -519,7 +520,8 @@ await test('Review: saving waits for a note that is still formatting', async () 
   const [x, y] = screen(page, 72, 700);
   pointer('pointerdown', x, y);
   pointer('pointerup', x, y);
-  const ta = await until(() => document.querySelector('textarea.inline-editor.md-source'), 3000, 'the editor');
+  (await until(() => document.querySelector('.markdown-editor .md-editor-action[title="Edit the Markdown source"]'), 3000, 'the editor')).click();
+  const ta = document.querySelector('.md-editor-source');
   ta.value = String.raw`# Saved straight away
 With maths $\sqrt{2}$ that takes a moment.`;
   await app.tools.settle();
@@ -536,7 +538,8 @@ await test('Review: a note typed in one document stays there if another is opene
   const [x, y] = screen(page, 72, 700);
   pointer('pointerdown', x, y);
   pointer('pointerup', x, y);
-  const ta = await until(() => document.querySelector('textarea.inline-editor.md-source'), 3000, 'the editor');
+  (await until(() => document.querySelector('.markdown-editor .md-editor-action[title="Edit the Markdown source"]'), 3000, 'the editor')).click();
+  const ta = document.querySelector('.md-editor-source');
   ta.value = String.raw`Belongs to the first document $x^3$`;
   const b = app.newDocument();
   await app.tools.settle();
