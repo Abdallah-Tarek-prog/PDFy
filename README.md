@@ -120,6 +120,7 @@ npm test
 | `node tests/browser-run.mjs --fixture split-view-tests.js` | Independent panes, toolbar focus, editing/saving, tab moves, collections, empty-pane opening and narrow-window layout |
 | `node tests/browser-run.mjs --fixture auto-scroll-tests.js` | Wheel-click scrolling, cancellation, drawing safety and independent split panes |
 | `node tests/browser-run.mjs --fixture markdown-editor-tests.js` | Formatted toolbar, .md import/source, safe rendering, PDF save/reopen and split-pane editing |
+| `node tests/browser-run.mjs --fixture markdown-colour-tests.js` | Real mouse palette choices, custom codes, typing colours and pane changes |
 | `node tests/browser-run.mjs --fixture updater-ui-tests.js` | Update settings, download/error/ready states and narrow-window layout |
 | `dotnet run --project tests/native-update/UpdateTests.csproj` | Package checksums, unsafe archive paths, install backups and rollback on a locked file |
 | `node tests/updater-host-test.mjs` | Published-release download and restart, including Cancel on unsaved work; requires `PDFY_OLD_EXE` pointing to an older build with the updater |

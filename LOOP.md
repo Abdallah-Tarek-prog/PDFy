@@ -50,9 +50,13 @@ Read this first, continue from "Next", then update this file.
 - The real public 0.3.0→0.4.0 upgrade passed all 12 checks: download/digest verification, unsaved-work Cancel/retry, automatic restart, the new Markdown toolbar in the existing cached profile, previous-release backup, unrelated-document preservation and up-to-date status. The final editor check waits for the first page to finish loading.
 - After the owner saved and closed the app, installed 0.4.0 through the verified update helper and hash-verified all 937 app files. `.previous-release` contains 0.3.0. Reopened the app successfully (PID 47904, responding, startup log confirms 0.4.0.0). Removed 188.6 MB of disposable upgrade-test installations; published archives and rollback files remain.
 
+## Markdown colour fix on 2026-11-09
+- Version 0.4.1 replaces the Markdown toolbar's native colour input with the app's palette and colour-code fields. It preserves the selected words while the picker has focus, keeps the editor open through swatch redraws and code acceptance, returns focus after Escape, and removes the palette when its editor closes.
+- Typecheck/build, 4 real-mouse colour checks, 9 Markdown formatting/import/save checks, 18 editing/save regressions and 21 real Windows-host checks passed. Confirmed actual selected-text foreground colour in Windows and inspected the palette screenshot. Built the 37.7 MB archive with 937 verified app files (47.4 MB installed). Publication, public 0.4.0→0.4.1 upgrade and owner installation are next.
+
 ## Next
 0. Side-by-side workspace shipped in v0.3.0. Both halves have their own selected document, tab bar, reading state and tools. Tabs can move between halves; toolbar/panels follow the selected pane. All 17 split-view checks, 17 Windows-host checks, typecheck/build, 26 unit checks and affected tab/library/session/reload regressions passed. Published the 37.5 MB release, verified the complete 0.2.0→0.3.0 upgrade with 12 checks (including new web assets in an existing profile), installed all 936 verified files and reopened the owner's app. `.previous-release` contains 0.2.0.
-1. Future installations need the owner's Meletiq PDF closed; never close it for them. Version 0.4.0 is installed and tested.
+1. Future installations need the owner's Meletiq PDF closed; never close it for them. Version 0.4.0 is installed; 0.4.1 is built and tested. Save/close confirmation for the colour fix is pending (owner PID 47904).
 2. Fix the 5 failing page tests listed above (history entries, font and colour pickers).
 3. Ask the owner whether minimise still looks wrong after installing; if so, get a screen recording.
 4. Try the pen settings with the owner's real graphics tablet, and pinch on a real touchpad: so far only simulated events were tested.

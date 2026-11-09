@@ -120,6 +120,12 @@ try {
   check('A second wheel click stops Windows auto-scroll', await page.eval(`!document.querySelector('.auto-scroll-origin')`));
   await page.eval(`(() => { const a=window.__pdfy; a.viewer.setScale(1); a.viewer.goTo(0); a.setMode('edit'); a.tools.setTool('markdown'); a.tools.openEditor(a.viewer.views.get(a.session.pages[0].id),{...a.tools.base('text','markdown'),rect:[30,400,330,650],markdown:true,text:'**Windows note**'},true); })(); 1`);
   check('The formatted Markdown toolbar works in Windows WebView2', await page.eval(`!!document.querySelector('.markdown-editor [aria-label="Bold (Ctrl+B)"]') && document.querySelector('.md-editable strong')?.textContent==='Windows note'`));
+  await page.eval(`document.querySelector('.md-editable').focus(); 1`);
+  for (const type of ['keyDown','keyUp']) await page.send('Input.dispatchKeyEvent',{type,key:'a',code:'KeyA',modifiers:2,windowsVirtualKeyCode:65});
+  await page.eval(`document.querySelector('.markdown-editor [aria-label="Text colour"]').click(); 1`);
+  const colourPoint=await page.eval(`(() => { const r=document.querySelector('.colour-popover [aria-label="Colour #d92d20"]').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
+  for(const type of ['mousePressed','mouseReleased'])await page.send('Input.dispatchMouseEvent',{type,...colourPoint,button:'left',clickCount:1});
+  check('The Markdown colour palette applies the selected text colour in Windows',await page.eval(`document.querySelector('.markdown-editor .md-color')?.textContent==='Windows note' && getComputedStyle(document.querySelector('.markdown-editor .md-color strong')??document.querySelector('.markdown-editor .md-color')).color==='rgb(217, 45, 32)'`));
   await page.eval(`document.querySelector('.md-done').click(); window.__pdfy.tools.settle().then(()=>{for(const s of window.__pdfy.sessions)s.dirty=false;});`);
 
   // 5. Minimise: the window must not slide sideways first.

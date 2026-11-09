@@ -1,6 +1,6 @@
 {
   "name": "pdfy",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "description": "Meletiq PDF: a fast, crash-resistant PDF editor with image theme conversion",

@@ -5,6 +5,7 @@ const root=()=>document.querySelector('.markdown-editor');
 const button=label=>root().querySelector(`[aria-label="${label}"]`);
 const selectAll=async()=>{root().querySelector('[contenteditable=true]').focus();for(const type of ['keyDown','keyUp'])await window.__cdp('Input.dispatchKeyEvent',{type,key:'a',code:'KeyA',modifiers:2,windowsVirtualKeyCode:65});};
 const type=async text=>window.__cdp('Input.insertText',{text});
+const pickColour=hex=>{button('Text colour').click();const input=document.querySelector('.colour-popover .cp-hex');input.value=hex;input.dispatchEvent(new Event('change'));};
 async function closeAll(){await app.tools.settle();for(const s of [...app.sessions]){s.dirty=false;await app.closeSession(s);}}
 async function open(text=''){
   await closeAll();const session=app.newDocument();app.viewer.setScale(1);await wait(100);
@@ -23,7 +24,7 @@ try{
   });
   await test('Bold, italic, underline and colour survive closing and reopening the note',async()=>{
     const {page}=await open('Colourful');await selectAll();button('Bold (Ctrl+B)').click();button('Italic (Ctrl+I)').click();button('Underline (Ctrl+U)').click();
-    const colour=button('Text colour');colour.value='#b93b12';colour.dispatchEvent(new Event('input',{bubbles:true}));
+    pickColour('#b93b12');
     check(root().querySelector('strong')&&root().querySelector('em')&&root().querySelector('u'),'Formatting did not reach the selection');
     const saved=await finish();check(saved.text.includes('#b93b12')&&saved.text.includes('<u>'),'Formatting was not kept as Markdown');
     const rendered=await until(()=>document.querySelector(`[data-id="${saved.id}"] .md-color`));check(rendered.style.color==='rgb(185, 59, 18)','Text colour did not render after editing');
@@ -59,7 +60,7 @@ try{
     const {session}=await open('Saved formatting');const directory=await navigator.storage.getDirectory();const filename='markdown-save-'+Date.now()+'.pdf';
     try{
       session.handle=await directory.getFileHandle(filename,{create:true});await selectAll();button('Bold (Ctrl+B)').click();
-      const colour=button('Text colour');colour.value='#b93b12';colour.dispatchEvent(new Event('input',{bubbles:true}));
+      pickColour('#b93b12');
       root().querySelector('[contenteditable=true]').focus();
       for(const type of ['keyDown','keyUp'])await window.__cdp('Input.dispatchKeyEvent',{type,key:'s',code:'KeyS',modifiers:2,windowsVirtualKeyCode:83});
       await until(()=>!root()&&!session.dirty);const file=await session.handle.getFile();check(file.size>1000,'Save did not write a PDF');

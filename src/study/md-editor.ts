@@ -5,6 +5,7 @@ import { Highlight } from '@tiptap/extension-highlight';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import { TableKit } from '@tiptap/extension-table';
 import { h, icon, reportError } from '../ui/dom';
+import { openColourPicker } from '../ui/colorpicker';
 import { allThemes, ensureRichCss, themeById, themeVars } from './mdthemes';
 import { preservedMarkdown } from './md-editor-schema';
 
@@ -17,6 +18,7 @@ interface Options {
 export function createMarkdownEditor(options: Options) {
   ensureRichCss();
   let editor: Editor, sourceMode = false, dirty = false, original = options.text, fontSize = options.size;
+  let picker: ReturnType<typeof openColourPicker> | undefined, textColour = '#1a56db';
   const host = h('div', { class: 'inline-editor markdown-editor', 'aria-label': 'Markdown note editor' });
   const top = h('div', { class: 'md-editor-top' });
   const toolbar = h('div', { class: 'md-formatbar', role: 'toolbar', 'aria-label': 'Markdown formatting' });
@@ -75,8 +77,21 @@ export function createMarkdownEditor(options: Options) {
   action('Underline (Ctrl+U)', 'underline', () => { editor.chain().focus().toggleUnderline().run(); }, () => editor.isActive('underline'));
   action('Strikethrough', 'strike', () => { editor.chain().focus().toggleStrike().run(); }, () => editor.isActive('strike'));
   action('Highlight', 'highlight', () => { editor.chain().focus().toggleHighlight().run(); }, () => editor.isActive('highlight'));
-  const colour = h('input', { type: 'color', value: '#1a56db', class: 'md-text-colour', title: 'Text colour', 'aria-label': 'Text colour' });
-  colour.oninput = () => { editor.chain().focus().setMark('noteColor', { color: colour.value }).run(); };
+  const colour = h('button', { type: 'button', class: 'md-text-colour', title: 'Select text, then choose its colour', 'aria-label': 'Text colour', 'aria-haspopup': 'dialog', style: { background: textColour },
+    onmousedown: (e: MouseEvent) => e.preventDefault(),
+    onclick: () => {
+      const { from, to } = editor.state.selection;
+      picker = openColourPicker(colour, textColour, color => {
+        if (editor.isDestroyed) return;
+        // Keep the selected words while the palette or its code fields have focus.
+        editor.chain().setTextSelection({ from, to }).setMark('noteColor', { color }).run();
+        textColour = color; colour.style.background = color;
+        // Palette swatches are redrawn after choosing; keep focus in the editor before removal.
+        if (picker?.el.contains(document.activeElement) && document.activeElement?.tagName === 'BUTTON') colour.focus({ preventScroll: true });
+      }, () => { if (!editor.isDestroyed) editor.view.focus(); });
+      picker.el.addEventListener('focusout', finishIfLeft);
+    },
+  });
   toolbar.append(colour);
   action('Bulleted list', 'bulletList', () => { editor.chain().focus().toggleBulletList().run(); }, () => editor.isActive('bulletList'));
   action('Numbered list', 'numberedList', () => { editor.chain().focus().toggleOrderedList().run(); }, () => editor.isActive('orderedList'));
@@ -89,6 +104,8 @@ export function createMarkdownEditor(options: Options) {
   const updateButtons = () => {
     for (const { button, active } of buttons) { const on = active(); button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on)); }
     paragraph.value = editor.isActive('heading') ? String(editor.getAttributes('heading').level) : 'p';
+    const current = editor.getAttributes('noteColor').color;
+    if (typeof current === 'string') { textColour = current; colour.style.background = current; }
   };
   editor = new Editor({
     element: rich,
@@ -113,9 +130,12 @@ export function createMarkdownEditor(options: Options) {
     e.stopPropagation();
     if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); options.onDone(true); }
   });
-  host.addEventListener('focusout', () => setTimeout(() => {
-    if (host.isConnected && !host.contains(document.activeElement)) options.onDone(false);
-  }, 0));
+  function finishIfLeft() {
+    setTimeout(() => {
+      if (host.isConnected && !host.contains(document.activeElement) && !picker?.el.contains(document.activeElement)) options.onDone(false);
+    }, 0);
+  }
+  host.addEventListener('focusout', finishIfLeft);
   host.addEventListener('dblclick', e => {
     const target = (e.target as Element).closest<HTMLElement>('.md-preserved');
     if (!target || sourceMode) return;
@@ -132,6 +152,6 @@ export function createMarkdownEditor(options: Options) {
       const room = Math.max(60, maxHeight - controls - 4);
       rich.style.maxHeight = `${room}px`; source.style.height = `${room}px`;
     },
-    destroy: () => { editor.destroy(); host.remove(); },
+    destroy: () => { picker?.close(); editor.destroy(); host.remove(); },
   };
 }

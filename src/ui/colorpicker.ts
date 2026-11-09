@@ -47,7 +47,7 @@ export function normaliseHex(text: string): string | null {
 let open: { close(): void } | null = null;
 
 /** Opens the picker beside an element. onPick runs when a colour is settled on. */
-export function openColourPicker(anchor: HTMLElement, value: string, onPick: (hex: string) => void) {
+export function openColourPicker(anchor: HTMLElement, value: string, onPick: (hex: string) => void, onDismiss?: () => void) {
   open?.close();
   let [hue, sat, val] = hexToHsv(normaliseHex(value) ?? '#000000');
   let current = normaliseHex(value) ?? '#000000';
@@ -82,7 +82,7 @@ export function openColourPicker(anchor: HTMLElement, value: string, onPick: (he
     onPick(colour);
     write(RECENT, [colour, ...read(RECENT).filter(c => c !== colour)].slice(0, 12));
     drawLists();
-    if (closeAfter) close();
+    if (closeAfter) close(true);
   };
 
   const swatchRow = (title: string, colours: string[]) => (colours.length ? h('div', { class: 'cp-row' },
@@ -154,14 +154,16 @@ export function openColourPicker(anchor: HTMLElement, value: string, onPick: (he
     h('div', { class: 'cp-codes' }, swatch, hex, ...rgb, dropper, favBtn),
     lists);
 
-  function close() {
+  function close(returnFocus = false) {
+    if (!panel.isConnected) return;
     panel.remove();
     document.removeEventListener('pointerdown', outside, true);
     document.removeEventListener('keydown', key, true);
     open = null;
+    if (returnFocus) onDismiss?.();
   }
   const outside = (e: Event) => { if (!panel.contains(e.target as Node) && !anchor.contains(e.target as Node)) close(); };
-  const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(true); } };
   open = { close };
 
   document.body.append(panel);
@@ -170,6 +172,7 @@ export function openColourPicker(anchor: HTMLElement, value: string, onPick: (he
   placeNear(panel, anchor);
   document.addEventListener('pointerdown', outside, true);
   document.addEventListener('keydown', key, true);
+  return { el: panel, close };
 }
 
 /** Puts a floating panel under an element, keeping it on screen. */
